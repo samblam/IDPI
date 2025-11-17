@@ -39,9 +39,9 @@ export default function Dashboard() {
         const statsData = await apiClient.getStats();
         setStats(statsData);
 
-        // Load initial indicators
+        // Load initial indicators with default confidence threshold
         const indicatorsData = await apiClient.getIndicators({
-          confidence_min: minConfidence,
+          confidence_min: 75,
           page_size: 20,
         });
         setIndicators(indicatorsData.items);

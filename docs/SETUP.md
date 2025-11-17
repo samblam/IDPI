@@ -317,6 +317,8 @@ COSMOS_DATABASE=threatstream
 # Azure OpenAI
 OPENAI_ENDPOINT=https://threatstream-openai.openai.azure.com/
 OPENAI_API_KEY=your-openai-key
+# Note: Check Azure OpenAI docs for latest available model versions
+# https://learn.microsoft.com/en-us/azure/ai-services/openai/concepts/models
 OPENAI_MODEL=gpt-4o-2024-08-06
 
 # Threat Intel Sources
@@ -614,4 +616,3 @@ After successful setup:
 For setup issues:
 - **Documentation**: [README](../README.md)
 - **GitHub Issues**: [Report a problem](https://github.com/yourusername/IDPI/issues)
-- **Email**: samuel.barefoot@example.com
