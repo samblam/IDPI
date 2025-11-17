@@ -146,6 +146,32 @@ class CosmosClient:
 
         return list(items)
 
+    def get_item(self, container_name: str, item_id: str) -> Optional[Dict]:
+        """
+        Get single item by ID (without partition key)
+
+        Uses query since partition key is not known.
+        Less efficient than get_item_by_id but more convenient.
+
+        Args:
+            container_name: Container name
+            item_id: Item ID
+
+        Returns:
+            Item if found, None otherwise
+        """
+        if not self.database:
+            raise RuntimeError("Cosmos client not initialized")
+
+        try:
+            query = "SELECT * FROM c WHERE c.id = @id"
+            parameters = [{"name": "@id", "value": item_id}]
+            results = self.query_items(container_name, query, parameters)
+            return results[0] if results else None
+        except Exception as e:
+            self.logger.warning(f"Item not found: {e}")
+            return None
+
     def get_item_by_id(
         self,
         container_name: str,
@@ -174,3 +200,54 @@ class CosmosClient:
         except Exception as e:
             self.logger.warning(f"Item not found: {e}")
             return None
+
+    def query_items_with_continuation(
+        self,
+        container_name: str,
+        query: str,
+        parameters: Optional[List[Dict]] = None,
+        page_size: int = 100,
+        continuation_token: Optional[str] = None
+    ) -> tuple[List[Dict], Optional[str]]:
+        """
+        Query items with pagination support
+
+        Args:
+            container_name: Container to query
+            query: SQL query with parameter placeholders
+            parameters: List of parameter dictionaries
+            page_size: Number of items per page
+            continuation_token: Continuation token from previous query
+
+        Returns:
+            Tuple of (items, continuation_token)
+        """
+        if not self.database:
+            raise RuntimeError("Cosmos client not initialized")
+
+        container = self.database.get_container_client(container_name)
+
+        query_iterable = container.query_items(
+            query=query,
+            parameters=parameters or [],
+            enable_cross_partition_query=True,
+            max_item_count=page_size
+        )
+
+        # Get items and continuation token
+        items = []
+        response_headers = {}
+
+        try:
+            # Fetch one page
+            for item in query_iterable.by_page(continuation_token):
+                items.extend(list(item))
+                response_headers = query_iterable.response_headers
+                break  # Only get first page
+
+            new_continuation = response_headers.get('x-ms-continuation')
+            return items, new_continuation
+
+        except Exception as e:
+            self.logger.error(f"Error during paginated query: {e}")
+            return items, None
