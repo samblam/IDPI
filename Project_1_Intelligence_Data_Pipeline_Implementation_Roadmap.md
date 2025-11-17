@@ -2,11 +2,11 @@
 
 ## Executive Summary
 
-**Project Name:** ThreatStream Intelligence Pipeline  
-**Target Companies:** Palantir (FDSE/Data Integration), Flare (Threat Intelligence), GeoComply (Fraud Detection)  
-**Core Value Proposition:** Demonstrates enterprise data pipeline architecture, real-world data quality handling, and practical AI/ML integration for intelligence workflows  
-**Development Timeline:** 2 weeks (80-100 hours)  
-**Deployment Target:** Azure (Data Factory, Cosmos DB, OpenAI, Functions, Monitor)
+**Project Name:** ThreatStream Intelligence Pipeline
+**Target Companies:** Palantir (FDSE/Data Integration), Flare (Threat Intelligence), GeoComply (Fraud Detection)
+**Core Value Proposition:** Demonstrates enterprise data pipeline architecture, real-world data quality handling, and practical AI/ML integration for intelligence workflows
+**Development Timeline:** 3-4 weeks (120-160 hours)
+**Deployment Target:** Azure (Data Factory, Cosmos DB, OpenAI, Functions, Monitor, Redis Cache)
 
 ### Why This Project Gets Interviews
 
@@ -32,70 +32,126 @@ Based on portfolio research, this project hits key evaluation criteria:
 
 ---
 
+## Prerequisites & Important Notes
+
+### Critical Requirements (Verify BEFORE Starting)
+
+**1. Azure OpenAI Access**
+- ⚠️ **CRITICAL:** Azure OpenAI requires application/approval (not available to all subscriptions by default)
+- Application process can take 1-2 weeks in some regions
+- Apply at: https://aka.ms/oai/access
+- **Fallback Option:** Use standard OpenAI API (requires code changes) or skip AI enrichment for MVP
+
+**Recommended Regions with GPT-4o Availability:**
+- East US
+- East US 2
+- Sweden Central
+- Switzerland North
+
+**Required API Version:** `2024-10-21` (or later for structured outputs)
+
+**2. External API Keys & Rate Limits**
+
+| API Source | Free Tier | Rate Limits | Notes |
+|------------|-----------|-------------|-------|
+| **AlienVault OTX** | ✅ Yes | 1,000 req/hour | Free with registration |
+| **AbuseIPDB** | ⚠️ Limited | 1,000 req/day (free)<br>100,000 req/day (paid $20/mo) | Free tier may be insufficient |
+| **URLhaus** | ✅ Yes | Rate limited | Free, no key required |
+
+**Recommendation for MVP:**
+- Start with **OTX only** to prove concept
+- Add AbuseIPDB once core pipeline works
+- URLhaus is nice-to-have
+
+**3. Azure Subscription & Budget**
+- Active Azure subscription with credit card
+- **Set cost alert:** $50/week maximum
+- Use Cosmos DB emulator for local development
+- Mock OpenAI calls during testing (costs add up quickly)
+
+**4. Development Environment**
+- Python 3.11+
+- Azure Functions Core Tools v4
+- Docker Desktop (for local testing)
+- Azure CLI
+- Terraform 1.5+
+- Node.js 18+ (if building dashboard)
+
+**5. Timeline Reality Check**
+- **Experienced with Azure:** 120-140 hours realistic
+- **Learning Azure simultaneously:** 150-180 hours more realistic
+- **First time with Functions/Cosmos:** Add another 30-50 hours for debugging
+- **React dashboard is OPTIONAL for MVP** - focus on core pipeline first
+
+---
+
 ## Technical Architecture
 
 ### System Components
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                     ThreatStream Pipeline                        │
-├─────────────────────────────────────────────────────────────────┤
-│                                                                   │
-│  ┌──────────────┐    ┌──────────────┐    ┌──────────────┐      │
-│  │   OTX API    │    │ AbuseIPDB    │    │ URLhaus API  │      │
-│  │  (AlienVault)│    │     API      │    │   (Abuse.ch) │      │
-│  └──────┬───────┘    └──────┬───────┘    └──────┬───────┘      │
-│         │                   │                    │               │
-│         └───────────────────┴────────────────────┘               │
-│                             │                                     │
-│                    ┌────────▼────────┐                          │
-│                    │  Azure Data     │                          │
-│                    │    Factory      │                          │
-│                    │  (Orchestration)│                          │
-│                    └────────┬────────┘                          │
-│                             │                                     │
-│         ┌───────────────────┼───────────────────┐               │
-│         │                   │                   │               │
-│    ┌────▼─────┐      ┌─────▼──────┐     ┌─────▼──────┐        │
-│    │ Ingestion│      │Normalization│    │Deduplication│        │
-│    │ Function │      │  Function   │    │  Function   │        │
-│    └────┬─────┘      └─────┬──────┘     └─────┬──────┘        │
-│         │                   │                   │               │
-│         └───────────────────┴───────────────────┘               │
-│                             │                                     │
-│                    ┌────────▼────────┐                          │
-│                    │   Azure OpenAI  │                          │
-│                    │  (Enrichment &  │                          │
-│                    │  Classification)│                          │
-│                    └────────┬────────┘                          │
-│                             │                                     │
-│                    ┌────────▼────────┐                          │
-│                    │   Cosmos DB     │                          │
-│                    │ (Threat Storage)│                          │
-│                    │  - Raw Layer    │                          │
-│                    │  - Processed    │                          │
-│                    │  - Enriched     │                          │
-│                    └────────┬────────┘                          │
-│                             │                                     │
-│         ┌───────────────────┴───────────────────┐               │
-│         │                                       │               │
-│    ┌────▼─────┐                          ┌─────▼──────┐        │
-│    │  FastAPI │                          │   Azure    │        │
-│    │Query API │                          │  Monitor   │        │
-│    │(Python)  │                          │ (Observ.)  │        │
-│    └──────────┘                          └────────────┘        │
-│                                                                   │
-└─────────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────────┐
+│                     ThreatStream Pipeline                            │
+├─────────────────────────────────────────────────────────────────────┤
+│                                                                       │
+│  ┌──────────────┐    ┌──────────────┐    ┌──────────────┐          │
+│  │   OTX API    │    │ AbuseIPDB    │    │ URLhaus API  │          │
+│  │  (AlienVault)│    │     API      │    │   (Abuse.ch) │          │
+│  └──────┬───────┘    └──────┬───────┘    └──────┬───────┘          │
+│         │                   │                    │                   │
+│         └───────────────────┴────────────────────┘                   │
+│                             │                                         │
+│                    ┌────────▼────────┐                              │
+│                    │  Azure Functions│                              │
+│                    │  (Orchestration)│                              │
+│                    └────────┬────────┘                              │
+│                             │                                         │
+│         ┌───────────────────┼───────────────────┐                   │
+│         │                   │                   │                   │
+│    ┌────▼─────┐      ┌─────▼──────┐     ┌─────▼──────┐            │
+│    │ Ingestion│      │Normalization│    │Deduplication│            │
+│    │+Validation│     │  Function   │    │  Function   │            │
+│    └────┬─────┘      └─────┬──────┘     └─────┬──────┘            │
+│         │                   │                   │                   │
+│         └───────────────────┴───────────────────┘                   │
+│                             │                                         │
+│                    ┌────────▼────────┐                              │
+│                    │   Azure OpenAI  │                              │
+│                    │  (Enrichment &  │                              │
+│                    │ TTP Classification)                            │
+│                    └────────┬────────┘                              │
+│                             │                                         │
+│                    ┌────────▼────────┐                              │
+│                    │   Cosmos DB     │                              │
+│                    │ (Threat Storage)│                              │
+│                    │  - Raw (TTL:90d)│                              │
+│                    │  - Normalized   │                              │
+│                    │  - Deduplicated │                              │
+│                    │  - Enriched     │                              │
+│                    └────────┬────────┘                              │
+│                             │                                         │
+│         ┌───────────────────┴───────────────────┐                   │
+│         │                   │                   │                   │
+│    ┌────▼─────┐      ┌─────▼──────┐     ┌─────▼──────┐            │
+│    │  FastAPI │      │Azure Cache │     │   Azure    │            │
+│    │Query API │◄─────┤for Redis   │     │  Monitor   │            │
+│    │+Auth+Rate│      │ (Caching)  │     │+App Insights            │
+│    │ Limiting │      └────────────┘     └────────────┘            │
+│    └──────────┘                                                      │
+│                                                                       │
+└─────────────────────────────────────────────────────────────────────┘
 ```
 
 ### Data Flow Architecture
 
 **Stage 1: Ingestion (Azure Functions - Timer Triggered)**
 - OTX: Pull malware indicators, IP reputation, domain intel (hourly)
-- AbuseIPDB: Pull reported IPs with abuse confidence scores (every 30 min)
-- URLhaus: Pull malicious URLs and payload hashes (every 15 min)
-- Raw data → Cosmos DB `raw_indicators` container
-- Track ingestion metadata: source, timestamp, API response time
+- AbuseIPDB: Pull reported IPs with abuse confidence scores (hourly)
+- URLhaus: Pull malicious URLs and payload hashes (hourly)
+- **Schema Validation**: Validate API response structure before storage
+- **Error Handling**: Log malformed responses, alert on schema changes
+- Raw data → Cosmos DB `raw_indicators` container (TTL: 90 days)
+- Track ingestion metadata: source, timestamp, API response time, validation status
 
 **Stage 2: Normalization (Azure Functions - Cosmos DB Triggered)**
 - Convert all indicators to standardized schema
@@ -106,43 +162,55 @@ Based on portfolio research, this project hits key evaluation criteria:
 - Output → Cosmos DB `normalized_indicators` container
 
 **Stage 3: Deduplication (Azure Functions - Timer Triggered)**
+- **Frequency**: Runs every hour (not every 15 min - cost optimization)
 - Query normalized indicators from last 24 hours
 - Group by indicator value + type
 - Merge metadata from multiple sources
 - Calculate composite confidence score
 - Preserve provenance (all sources that reported it)
+- **Update existing records** instead of creating duplicates
 - Output → Cosmos DB `deduplicated_indicators` container
 
 **Stage 4: AI Enrichment (Azure Functions - Cosmos DB Triggered)**
 - For high-confidence indicators (score > 75)
-- Call Azure OpenAI GPT-4 with prompt:
+- **Check cache**: Skip if enriched within last 24 hours
+- Call Azure OpenAI GPT-4o with **structured output mode**:
   - Indicator value and type
   - All source metadata
   - Request: TTP classification, threat actor attribution, campaign correlation
-- Parse OpenAI response
+  - **Enforce JSON schema** for consistent parsing
+- **Validate MITRE ATT&CK IDs** against official framework
+- Parse and validate OpenAI response
 - Add enrichment to indicator document
+- **Track costs**: Log token usage and estimated cost per enrichment
 - Output → Cosmos DB `enriched_indicators` container
 
 **Stage 5: Query API (FastAPI on Azure Container Apps)**
+- **Authentication**: API key-based authentication (required for all endpoints)
+- **Rate Limiting**: 100 requests/minute per API key
+- **Caching**: Redis cache for frequently accessed data (stats, top indicators)
 - RESTful endpoints for SIEM integration
 - Query by indicator value, type, confidence range, time range
 - Relationship queries (find all indicators from same campaign)
 - Bulk export endpoints
-- Real-time WebSocket for new high-severity indicators
+- **Real-time feed**: Server-Sent Events (SSE) for new high-severity indicators
+- **Security**: All Cosmos queries use parameterized statements (no SQL injection)
 
 ---
 
 ## Module Breakdown
 
-### Module 1: Data Ingestion Framework (Week 1, Days 1-3)
+### Module 1: Data Ingestion Framework (Week 1, Days 1-4)
 
 **Deliverables:**
 1. Azure Function App with HTTP and Timer triggers
 2. Three data source connectors (OTX, AbuseIPDB, URLhaus)
-3. Error handling with exponential backoff
-4. Cosmos DB raw storage layer
-5. Azure Monitor logging and alerting
-6. Unit tests (80%+ coverage)
+3. **Schema validation layer** with Pydantic models
+4. Error handling with exponential backoff and circuit breaker pattern
+5. Cosmos DB raw storage layer with TTL configuration
+6. **Backfill function** for data gap recovery
+7. Azure Monitor logging and alerting
+8. Unit tests (80%+ coverage) with **mocked external services**
 
 **Tech Stack:**
 - Python 3.11
@@ -164,22 +232,27 @@ ingestion/
 │   └── urlhaus_connector.py
 ├── storage/
 │   ├── __init__.py
-│   └── cosmos_client.py      # Cosmos DB wrapper
+│   └── cosmos_client.py      # Cosmos DB wrapper with parameterized queries
 ├── models/
 │   ├── __init__.py
-│   └── raw_indicator.py      # Pydantic models
+│   ├── raw_indicator.py      # Pydantic models for validation
+│   └── schemas.py            # API response schemas
 ├── config.py                 # Azure Key Vault integration
 ├── utils/
 │   ├── __init__.py
 │   ├── logger.py             # Structured logging
-│   └── retry.py              # Retry logic
+│   ├── retry.py              # Retry logic
+│   └── validator.py          # Schema validation utilities
+├── backfill.py               # Backfill function for data gaps
 ├── requirements.txt
 ├── host.json                 # Functions runtime config
-├── local.settings.json       # Local dev settings
+├── local.settings.json       # Local dev settings (use Cosmos emulator)
 └── tests/
     ├── __init__.py
     ├── test_connectors.py
     ├── test_storage.py
+    ├── test_validation.py
+    ├── test_backfill.py
     └── fixtures/
         └── mock_responses.json
 ```
@@ -266,6 +339,149 @@ class OTXConnector(BaseConnector):
         return indicators
 ```
 
+**Schema Validation Layer:**
+```python
+from pydantic import BaseModel, Field, validator
+from typing import List, Optional, Dict, Any
+from datetime import datetime
+
+class OTXIndicatorSchema(BaseModel):
+    """Pydantic schema for OTX API response validation"""
+    indicator: str
+    type: str
+    description: Optional[str] = ""
+
+    @validator('type')
+    def validate_indicator_type(cls, v):
+        valid_types = ['IPv4', 'IPv6', 'domain', 'hostname', 'URL', 'FileHash-MD5', 'FileHash-SHA256']
+        if v not in valid_types:
+            raise ValueError(f'Invalid indicator type: {v}')
+        return v
+
+class OTXPulseSchema(BaseModel):
+    """Pydantic schema for OTX pulse validation"""
+    id: str
+    name: str
+    TLP: Optional[str] = "unknown"
+    tags: List[str] = []
+    indicators: List[OTXIndicatorSchema]
+    description: Optional[str] = ""
+
+    class Config:
+        extra = 'allow'  # Allow extra fields but validate required ones
+
+class SchemaValidator:
+    """Validates API responses against expected schemas"""
+
+    @staticmethod
+    def validate_otx_response(data: Dict[str, Any]) -> bool:
+        """Validate OTX API response structure"""
+        try:
+            if 'results' not in data:
+                logging.error("OTX response missing 'results' field")
+                return False
+
+            for pulse in data['results']:
+                OTXPulseSchema(**pulse)  # Will raise if validation fails
+
+            return True
+        except Exception as e:
+            logging.error(f"OTX schema validation failed: {e}")
+            # Alert on schema changes - could indicate API update
+            send_alert("OTX API schema changed", str(e))
+            return False
+
+    @staticmethod
+    def validate_and_clean(raw_data: Dict, schema_class) -> Optional[Dict]:
+        """Validate and clean raw API data"""
+        try:
+            validated = schema_class(**raw_data)
+            return validated.dict()
+        except Exception as e:
+            logging.warning(f"Data validation failed: {e}")
+            return None
+```
+
+**Backfill Function for Data Gaps:**
+```python
+import azure.functions as func
+from datetime import datetime, timedelta
+
+@app.function_name(name="backfill_indicators")
+@app.route(route="backfill", methods=["POST"], auth_level=func.AuthLevel.FUNCTION)
+async def backfill_indicators(req: func.HttpRequest) -> func.HttpResponse:
+    """
+    Backfill indicators for a specific time range
+    Useful for recovering from extended outages or initial data load
+
+    POST /api/backfill
+    Body: {"source": "otx", "start_date": "2024-01-01", "end_date": "2024-01-07"}
+    """
+
+    try:
+        req_body = req.get_json()
+        source = req_body.get('source')
+        start_date = datetime.fromisoformat(req_body.get('start_date'))
+        end_date = datetime.fromisoformat(req_body.get('end_date'))
+
+        if not all([source, start_date, end_date]):
+            return func.HttpResponse("Missing required parameters", status_code=400)
+
+        # Get appropriate connector
+        api_key = get_secret(f"{source.upper()}-API-KEY")
+
+        if source == "otx":
+            connector = OTXConnector(api_key)
+        elif source == "abuseipdb":
+            connector = AbuseIPDBConnector(api_key)
+        else:
+            return func.HttpResponse("Invalid source", status_code=400)
+
+        # Fetch data in daily batches to avoid overwhelming API
+        current_date = start_date
+        total_indicators = 0
+
+        while current_date <= end_date:
+            next_date = current_date + timedelta(days=1)
+
+            logging.info(f"Backfilling {source} from {current_date} to {next_date}")
+
+            indicators = connector.fetch_indicators(since=current_date)
+
+            # Filter to date range
+            filtered = [
+                ind for ind in indicators
+                if current_date <= datetime.fromisoformat(ind['ingested_at']) < next_date
+            ]
+
+            # Store in Cosmos DB
+            cosmos_client = CosmosClient()
+            for indicator in filtered:
+                cosmos_client.upsert_item("raw_indicators", indicator)
+                total_indicators += 1
+
+            current_date = next_date
+
+            # Rate limiting - wait between batches
+            await asyncio.sleep(2)
+
+        logging.info(f"Backfill complete: {total_indicators} indicators from {source}")
+
+        return func.HttpResponse(
+            json.dumps({
+                "status": "success",
+                "source": source,
+                "indicators_backfilled": total_indicators,
+                "date_range": f"{start_date.isoformat()} to {end_date.isoformat()}"
+            }),
+            mimetype="application/json"
+        )
+
+    except Exception as e:
+        logging.error(f"Backfill failed: {e}")
+        return func.HttpResponse(f"Backfill failed: {str(e)}", status_code=500)
+```
+
 **Azure Function Timer Trigger:**
 ```python
 import azure.functions as func
@@ -307,43 +523,72 @@ async def ingest_otx(timer: func.TimerRequest) -> None:
     logging.info(f"Stored {stored_count}/{len(indicators)} indicators")
 ```
 
-**Cosmos DB Client:**
+**Cosmos DB Client (with Security Fixes):**
 ```python
 from azure.cosmos import CosmosClient as AzureCosmosClient, PartitionKey
 from typing import Dict, List, Optional
 import os
+import hashlib
 
 class CosmosClient:
-    """Wrapper for Cosmos DB operations"""
-    
+    """Wrapper for Cosmos DB operations with security best practices"""
+
     def __init__(self):
         endpoint = os.getenv("COSMOS_ENDPOINT")
         key = get_secret("COSMOS-KEY")
-        
+
         self.client = AzureCosmosClient(endpoint, key)
         self.database = self.client.get_database_client("threatstream")
-    
+
+    def _generate_partition_key(self, indicator_value: str, indicator_type: str) -> str:
+        """
+        Generate partition key to avoid hot partitions
+        Combines type with hash prefix to distribute load
+        """
+        # Use first 2 chars of hash to create 256 partitions per type
+        hash_prefix = hashlib.md5(indicator_value.encode()).hexdigest()[:2]
+        return f"{indicator_type}_{hash_prefix}"
+
     def upsert_item(self, container_name: str, item: Dict) -> Dict:
         """Insert or update item in container"""
         container = self.database.get_container_client(container_name)
-        
+
         # Generate ID from indicator value + source for deduplication
         item["id"] = f"{item['source']}_{item['indicator_value']}"
-        
+
+        # Set partition key to avoid hot partitions
+        if 'indicator_type' in item and 'indicator_value' in item:
+            item["partition_key"] = self._generate_partition_key(
+                item['indicator_value'],
+                item['indicator_type']
+            )
+
         return container.upsert_item(item)
-    
-    def query_items(self, container_name: str, query: str, 
+
+    def query_items(self, container_name: str, query: str,
                     parameters: Optional[List] = None) -> List[Dict]:
-        """Query items with SQL syntax"""
+        """
+        Query items with PARAMETERIZED queries (prevents SQL injection)
+        ALWAYS use parameters, NEVER string interpolation
+        """
         container = self.database.get_container_client(container_name)
-        
+
         items = container.query_items(
             query=query,
             parameters=parameters or [],
             enable_cross_partition_query=True
         )
-        
+
         return list(items)
+
+    def get_item_by_id(self, container_name: str, item_id: str, partition_key: str) -> Optional[Dict]:
+        """Get single item by ID and partition key (most efficient)"""
+        try:
+            container = self.database.get_container_client(container_name)
+            return container.read_item(item=item_id, partition_key=partition_key)
+        except Exception as e:
+            logging.warning(f"Item not found: {e}")
+            return None
 ```
 
 **Testing Strategy:**
@@ -521,9 +766,9 @@ class IndicatorNormalizer:
 
 **Deduplication Algorithm:**
 ```python
-@app.schedule(schedule="0 */15 * * * *", arg_name="timer")
+@app.schedule(schedule="0 0 * * * *", arg_name="timer")
 async def deduplicate_indicators(timer: func.TimerRequest) -> None:
-    """Deduplicate normalized indicators every 15 minutes"""
+    """Deduplicate normalized indicators every hour (cost optimization)"""
     
     cosmos_client = CosmosClient()
     
@@ -596,14 +841,16 @@ def calculate_composite_score(scores: List[int]) -> int:
 
 ---
 
-### Module 3: AI Enrichment Engine (Week 2, Days 1-2)
+### Module 3: AI Enrichment Engine (Week 2, Days 1-3)
 
 **Deliverables:**
-1. Azure OpenAI integration
+1. Azure OpenAI integration with **structured outputs** (JSON mode)
 2. Structured prompt engineering for threat classification
-3. TTP mapping to MITRE ATT&CK
+3. TTP mapping to MITRE ATT&CK with **validation against official framework**
 4. Enrichment quality validation
-5. Cost optimization (caching, batching)
+5. Cost optimization (caching, batching, token tracking)
+6. **MITRE ATT&CK framework validator**
+7. Configurable model selection (environment variable)
 
 **OpenAI Integration:**
 ```python
@@ -611,33 +858,73 @@ from openai import AsyncAzureOpenAI
 from typing import Dict, Optional
 import json
 
+class MITREValidator:
+    """Validates MITRE ATT&CK technique IDs"""
+
+    # Subset of valid MITRE ATT&CK techniques (in production, load from official JSON)
+    VALID_TECHNIQUES = {
+        "T1566", "T1566.001", "T1566.002", "T1566.003",  # Phishing
+        "T1071", "T1071.001", "T1071.004",  # Application Layer Protocol
+        "T1059", "T1059.001", "T1059.003",  # Command and Scripting Interpreter
+        "T1486",  # Data Encrypted for Impact
+        "T1048",  # Exfiltration Over Alternative Protocol
+        "T1190",  # Exploit Public-Facing Application
+        # Add more as needed or load from https://github.com/mitre/cti
+    }
+
+    @classmethod
+    def validate(cls, technique_id: str) -> bool:
+        """Validate if technique ID exists in MITRE ATT&CK framework"""
+        # Check exact match or parent technique
+        if technique_id in cls.VALID_TECHNIQUES:
+            return True
+
+        # Check if it's a sub-technique (T1234.567)
+        parent = technique_id.split('.')[0]
+        return parent in cls.VALID_TECHNIQUES
+
+    @classmethod
+    def filter_valid(cls, technique_ids: List[str]) -> List[str]:
+        """Filter list to only valid MITRE ATT&CK IDs"""
+        return [tid for tid in technique_ids if cls.validate(tid)]
+
 class ThreatEnrichmentEngine:
-    """AI-powered threat intelligence enrichment"""
-    
+    """AI-powered threat intelligence enrichment with structured outputs"""
+
     def __init__(self):
         self.client = AsyncAzureOpenAI(
             api_key=get_secret("OPENAI-API-KEY"),
             api_version="2024-10-21",
             azure_endpoint=os.getenv("OPENAI_ENDPOINT")
         )
-        self.model = "gpt-4o"  # Or "gpt-4o-2024-08-06" for latest with structured outputs
+        # Make model configurable via environment variable
+        self.model = os.getenv("OPENAI_MODEL", "gpt-4o-2024-08-06")  # Default to latest
+        self.mitre_validator = MITREValidator()
+
+        # Track costs
+        self.total_tokens_used = 0
+        self.total_cost = 0.0
     
     async def enrich_indicator(self, indicator: Dict) -> Dict:
         """Enrich indicator with AI analysis"""
-        
+
         # Build context from all sources
         context = self._build_context(indicator)
-        
-        # Call OpenAI with structured prompt
+
+        # Call OpenAI with structured outputs
         enrichment = await self._call_openai(context)
-        
-        # Validate and parse response
-        parsed = self._parse_enrichment(enrichment)
-        
+
+        # Validate and clean enrichment (includes MITRE validation)
+        validated = self._validate_and_clean_enrichment(enrichment)
+
         # Add to indicator
-        indicator["enrichment"] = parsed
+        indicator["enrichment"] = validated
         indicator["enriched_at"] = datetime.utcnow().isoformat()
-        
+        indicator["enrichment_cost"] = {
+            "tokens_used": self.total_tokens_used,
+            "estimated_cost_usd": round(self.total_cost, 4)
+        }
+
         return indicator
     
     def _build_context(self, indicator: Dict) -> str:
@@ -662,66 +949,124 @@ class ThreatEnrichmentEngine:
         
         return "\n".join(context_parts)
     
-    async def _call_openai(self, context: str) -> str:
-        """Call OpenAI with structured prompt"""
-        
-        system_prompt = """You are a threat intelligence analyst. Analyze the provided 
+    async def _call_openai(self, context: str) -> Dict:
+        """Call OpenAI with structured outputs (JSON mode)"""
+
+        system_prompt = """You are a threat intelligence analyst. Analyze the provided
 indicator and its context to determine:
 
 1. Threat Classification: malware, phishing, C2, exfiltration, reconnaissance, etc.
 2. Likely Threat Actor: If identifiable, name the APT group or threat actor
 3. Campaign Association: If part of a known campaign, identify it
-4. MITRE ATT&CK TTPs: Map to specific technique IDs (e.g., T1566.001)
+4. MITRE ATT&CK TTPs: Map to specific technique IDs (e.g., T1566.001, T1071.001)
 5. Severity Assessment: Critical, High, Medium, Low
 6. Recommended Actions: Specific mitigation steps
 
-Respond in JSON format with these exact keys: classification, threat_actor, 
-campaign, mitre_ttps (array), severity, recommended_actions (array)."""
-        
+Respond ONLY with valid JSON using these exact keys: classification, threat_actor,
+campaign, mitre_ttps (array of strings), severity, recommended_actions (array of strings)."""
+
         user_prompt = f"""Analyze this threat indicator:
 
 {context}
 
 Provide structured analysis in JSON format."""
-        
+
+        # Define the response format schema for structured outputs
+        response_format = {
+            "type": "json_schema",
+            "json_schema": {
+                "name": "threat_enrichment",
+                "strict": True,
+                "schema": {
+                    "type": "object",
+                    "properties": {
+                        "classification": {"type": "string"},
+                        "threat_actor": {"type": ["string", "null"]},
+                        "campaign": {"type": ["string", "null"]},
+                        "mitre_ttps": {
+                            "type": "array",
+                            "items": {"type": "string"}
+                        },
+                        "severity": {
+                            "type": "string",
+                            "enum": ["Critical", "High", "Medium", "Low"]
+                        },
+                        "recommended_actions": {
+                            "type": "array",
+                            "items": {"type": "string"}
+                        }
+                    },
+                    "required": ["classification", "severity", "mitre_ttps", "recommended_actions"],
+                    "additionalProperties": False
+                }
+            }
+        }
+
         response = await self.client.chat.completions.create(
             model=self.model,
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt}
             ],
-            temperature=0.3,  # Lower temperature for more consistent output
+            response_format=response_format,  # Enforce JSON schema
+            temperature=0.3,  # Lower temperature for consistent output
             max_tokens=800
         )
-        
-        return response.choices[0].message.content
+
+        # Track token usage and costs
+        usage = response.usage
+        self.total_tokens_used += usage.total_tokens
+
+        # GPT-4o pricing (as of 2024): $2.50/1M input, $10/1M output tokens
+        input_cost = (usage.prompt_tokens / 1_000_000) * 2.50
+        output_cost = (usage.completion_tokens / 1_000_000) * 10.00
+        total_cost = input_cost + output_cost
+        self.total_cost += total_cost
+
+        logging.info(f"OpenAI API call: {usage.total_tokens} tokens, ${total_cost:.4f}")
+
+        # Parse JSON response (guaranteed to be valid JSON with structured outputs)
+        enrichment_data = json.loads(response.choices[0].message.content)
+
+        return enrichment_data
     
-    def _parse_enrichment(self, response: str) -> Dict:
-        """Parse and validate OpenAI response"""
-        
+    def _validate_and_clean_enrichment(self, enrichment: Dict) -> Dict:
+        """Validate and clean enrichment data (including MITRE ATT&CK validation)"""
+
         try:
-            # Extract JSON from response (may have markdown formatting)
-            json_start = response.find("{")
-            json_end = response.rfind("}") + 1
-            json_str = response[json_start:json_end]
-            
-            enrichment = json.loads(json_str)
-            
-            # Validate required fields
+            # Validate MITRE ATT&CK technique IDs
+            if "mitre_ttps" in enrichment and enrichment["mitre_ttps"]:
+                original_ttps = enrichment["mitre_ttps"]
+                valid_ttps = self.mitre_validator.filter_valid(original_ttps)
+
+                if len(valid_ttps) < len(original_ttps):
+                    invalid = set(original_ttps) - set(valid_ttps)
+                    logging.warning(f"Filtered invalid MITRE techniques: {invalid}")
+
+                enrichment["mitre_ttps"] = valid_ttps
+                enrichment["mitre_validation"] = {
+                    "original_count": len(original_ttps),
+                    "valid_count": len(valid_ttps),
+                    "filtered": list(invalid) if invalid else []
+                }
+
+            # Ensure required fields exist
             required = ["classification", "severity", "recommended_actions"]
             for field in required:
                 if field not in enrichment:
-                    raise ValueError(f"Missing required field: {field}")
-            
+                    logging.error(f"Missing required field: {field}")
+                    enrichment[field] = "unknown" if field != "recommended_actions" else []
+
             return enrichment
-            
+
         except Exception as e:
-            logging.error(f"Failed to parse enrichment: {e}")
+            logging.error(f"Enrichment validation failed: {e}")
             return {
                 "classification": "unknown",
                 "severity": "Medium",
                 "recommended_actions": ["Manual analysis required"],
-                "parsing_error": str(e)
+                "mitre_ttps": [],
+                "validation_error": str(e)
             }
 ```
 
@@ -776,23 +1121,35 @@ def is_recently_enriched(indicator: Dict) -> bool:
 
 ---
 
-### Module 4: Query API & Dashboard (Week 2, Days 3-5)
+### Module 4: Query API (Week 2-3, Days 3-5)
 
 **Deliverables:**
-1. FastAPI application
-2. RESTful endpoints for indicator queries
+1. FastAPI application with **API key authentication**
+2. RESTful endpoints for indicator queries (with **parameterized Cosmos queries**)
 3. Relationship graph queries
-4. Real-time WebSocket feed
-5. API documentation (OpenAPI/Swagger)
-6. Simple React dashboard for visualization
+4. **Server-Sent Events (SSE)** for real-time feed (not WebSocket)
+5. **Rate limiting** (100 requests/min per API key)
+6. **Redis caching layer** for frequently accessed data
+7. API documentation (OpenAPI/Swagger)
+8. *(Optional) Simple React dashboard for visualization*
 
-**FastAPI Application:**
+**FastAPI Application (with Security & Caching):**
 ```python
-from fastapi import FastAPI, HTTPException, WebSocket, Query
+from fastapi import FastAPI, HTTPException, Header, Query, Depends
 from fastapi.middleware.cors import CORSMiddleware
-from typing import List, Optional
+from fastapi.responses import StreamingResponse
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
+from typing import List, Optional, AsyncGenerator
 from datetime import datetime, timedelta
 import uvicorn
+import redis.asyncio as redis
+import json
+import asyncio
+
+# Rate limiter setup
+limiter = Limiter(key_func=get_remote_address)
 
 app = FastAPI(
     title="ThreatStream Intelligence API",
@@ -800,84 +1157,172 @@ app = FastAPI(
     version="1.0.0"
 )
 
+# Add rate limiter
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
 # CORS for React dashboard
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=["*"],  # Restrict in production
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Initialize Cosmos client
+# Initialize clients
 cosmos_client = CosmosClient()
+redis_client = None  # Initialize in startup
+
+# API Key Authentication
+VALID_API_KEYS = set(os.getenv("API_KEYS", "").split(","))  # Load from env
+
+async def verify_api_key(x_api_key: str = Header(...)):
+    """Verify API key from request header"""
+    if x_api_key not in VALID_API_KEYS:
+        raise HTTPException(status_code=401, detail="Invalid API key")
+    return x_api_key
+
+@app.on_event("startup")
+async def startup():
+    """Initialize Redis connection on startup"""
+    global redis_client
+    redis_url = os.getenv("REDIS_URL", "redis://localhost:6379")
+    redis_client = await redis.from_url(redis_url, encoding="utf-8", decode_responses=True)
+
+@app.on_event("shutdown")
+async def shutdown():
+    """Close Redis connection on shutdown"""
+    if redis_client:
+        await redis_client.close()
 
 @app.get("/api/v1/indicators", response_model=List[EnrichedIndicator])
+@limiter.limit("100/minute")  # Rate limiting
 async def query_indicators(
+    request: Request,
     indicator_type: Optional[str] = None,
     min_confidence: int = Query(0, ge=0, le=100),
     max_results: int = Query(100, le=1000),
-    since: Optional[datetime] = None
+    since: Optional[datetime] = None,
+    api_key: str = Depends(verify_api_key)  # Authentication required
 ):
-    """Query threat indicators with filters"""
-    
-    # Build dynamic query
-    conditions = [f"c.confidence_score >= {min_confidence}"]
-    
+    """
+    Query threat indicators with filters
+
+    Requires: X-API-Key header
+    Rate limit: 100 requests/minute
+    """
+
+    # Check cache first
+    cache_key = f"indicators:{indicator_type}:{min_confidence}:{max_results}"
+    if redis_client:
+        cached = await redis_client.get(cache_key)
+        if cached:
+            logging.info(f"Cache hit for {cache_key}")
+            return json.loads(cached)
+
+    # Build PARAMETERIZED query (NO SQL INJECTION)
+    parameters = [{"name": "@min_confidence", "value": min_confidence}]
+    conditions = ["c.confidence_score >= @min_confidence"]
+
     if indicator_type:
-        conditions.append(f"c.indicator_type = '{indicator_type}'")
-    
+        parameters.append({"name": "@indicator_type", "value": indicator_type})
+        conditions.append("c.indicator_type = @indicator_type")
+
     if since:
-        conditions.append(f"c.last_seen > '{since.isoformat()}'")
-    
+        parameters.append({"name": "@since", "value": since.isoformat()})
+        conditions.append("c.last_seen > @since")
+
     where_clause = " AND ".join(conditions)
     query = f"SELECT TOP {max_results} * FROM c WHERE {where_clause} ORDER BY c.confidence_score DESC"
-    
-    results = cosmos_client.query_items("enriched_indicators", query)
-    
+
+    # Execute query with parameters
+    results = cosmos_client.query_items("enriched_indicators", query, parameters)
+
+    # Cache results for 5 minutes
+    if redis_client and results:
+        await redis_client.setex(cache_key, 300, json.dumps(results))
+
     return results
 
 @app.get("/api/v1/indicators/{indicator_value}", response_model=EnrichedIndicator)
-async def get_indicator(indicator_value: str):
-    """Get specific indicator by value"""
-    
-    query = f"SELECT * FROM c WHERE c.indicator_value = '{indicator_value}'"
-    results = cosmos_client.query_items("enriched_indicators", query)
-    
+@limiter.limit("100/minute")
+async def get_indicator(
+    request: Request,
+    indicator_value: str,
+    api_key: str = Depends(verify_api_key)
+):
+    """
+    Get specific indicator by value
+
+    Requires: X-API-Key header
+    """
+
+    # Check cache
+    cache_key = f"indicator:{indicator_value}"
+    if redis_client:
+        cached = await redis_client.get(cache_key)
+        if cached:
+            return json.loads(cached)
+
+    # PARAMETERIZED query (NO SQL INJECTION)
+    query = "SELECT * FROM c WHERE c.indicator_value = @indicator_value"
+    parameters = [{"name": "@indicator_value", "value": indicator_value}]
+
+    results = cosmos_client.query_items("enriched_indicators", query, parameters)
+
     if not results:
         raise HTTPException(status_code=404, detail="Indicator not found")
-    
-    return results[0]
+
+    result = results[0]
+
+    # Cache for 10 minutes
+    if redis_client:
+        await redis_client.setex(cache_key, 600, json.dumps(result))
+
+    return result
 
 @app.get("/api/v1/indicators/{indicator_value}/relationships")
-async def get_indicator_relationships(indicator_value: str):
-    """Find related indicators (same campaign, threat actor, etc.)"""
-    
-    # Get the indicator
-    indicator = await get_indicator(indicator_value)
-    
+@limiter.limit("100/minute")
+async def get_indicator_relationships(
+    request: Request,
+    indicator_value: str,
+    api_key: str = Depends(verify_api_key)
+):
+    """
+    Find related indicators (same campaign, threat actor, etc.)
+
+    Requires: X-API-Key header
+    """
+
+    # Get the indicator (from cache or DB)
+    indicator = await get_indicator(request, indicator_value, api_key)
+
     if not indicator.get("enrichment"):
         return {"relationships": []}
-    
+
     enrichment = indicator["enrichment"]
-    
-    # Query for indicators with same campaign or threat actor
-    conditions = []
-    
+
+    # Build PARAMETERIZED query
+    parameters = [{"name": "@indicator_value", "value": indicator_value}]
+    conditions = ["c.indicator_value != @indicator_value"]
+
     if enrichment.get("campaign"):
-        conditions.append(f"c.enrichment.campaign = '{enrichment['campaign']}'")
-    
+        parameters.append({"name": "@campaign", "value": enrichment["campaign"]})
+        conditions.append("c.enrichment.campaign = @campaign")
+
     if enrichment.get("threat_actor"):
-        conditions.append(f"c.enrichment.threat_actor = '{enrichment['threat_actor']}'")
-    
-    if not conditions:
+        parameters.append({"name": "@threat_actor", "value": enrichment["threat_actor"]})
+        conditions.append("c.enrichment.threat_actor = @threat_actor")
+
+    if len(conditions) == 1:  # Only the != condition
         return {"relationships": []}
-    
-    where_clause = " OR ".join(conditions)
-    query = f"SELECT * FROM c WHERE ({where_clause}) AND c.indicator_value != '{indicator_value}'"
-    
-    related = cosmos_client.query_items("enriched_indicators", query)
-    
+
+    where_clause = " AND ".join(conditions)
+    query = f"SELECT * FROM c WHERE {where_clause}"
+
+    related = cosmos_client.query_items("enriched_indicators", query, parameters)
+
     return {
         "indicator": indicator_value,
         "relationship_type": "campaign" if enrichment.get("campaign") else "threat_actor",
@@ -885,27 +1330,45 @@ async def get_indicator_relationships(indicator_value: str):
     }
 
 @app.get("/api/v1/stats")
-async def get_statistics():
-    """Get overall statistics"""
-    
-    # Query various stats
+@limiter.limit("100/minute")
+async def get_statistics(
+    request: Request,
+    api_key: str = Depends(verify_api_key)
+):
+    """
+    Get overall statistics
+
+    Requires: X-API-Key header
+    HEAVILY CACHED (1 hour) - stats don't change frequently
+    """
+
+    # Check cache first (1 hour TTL)
+    cache_key = "stats:global"
+    if redis_client:
+        cached = await redis_client.get(cache_key)
+        if cached:
+            return json.loads(cached)
+
+    # Query various stats with PARAMETERIZED queries
     total_query = "SELECT VALUE COUNT(1) FROM c"
     total = cosmos_client.query_items("enriched_indicators", total_query)[0]
-    
+
     # By type
     type_query = "SELECT c.indicator_type, COUNT(1) as count FROM c GROUP BY c.indicator_type"
     by_type = cosmos_client.query_items("enriched_indicators", type_query)
-    
+
     # High confidence count
-    high_conf_query = "SELECT VALUE COUNT(1) FROM c WHERE c.confidence_score >= 80"
-    high_confidence = cosmos_client.query_items("enriched_indicators", high_conf_query)[0]
-    
-    # Recent (last 24h)
+    high_conf_query = "SELECT VALUE COUNT(1) FROM c WHERE c.confidence_score >= @threshold"
+    parameters = [{"name": "@threshold", "value": 80}]
+    high_confidence = cosmos_client.query_items("enriched_indicators", high_conf_query, parameters)[0]
+
+    # Recent (last 24h) - PARAMETERIZED
     since = (datetime.utcnow() - timedelta(hours=24)).isoformat()
-    recent_query = f"SELECT VALUE COUNT(1) FROM c WHERE c.last_seen > '{since}'"
-    recent = cosmos_client.query_items("enriched_indicators", recent_query)[0]
-    
-    return {
+    recent_query = "SELECT VALUE COUNT(1) FROM c WHERE c.last_seen > @since"
+    parameters = [{"name": "@since", "value": since}]
+    recent = cosmos_client.query_items("enriched_indicators", recent_query, parameters)[0]
+
+    stats = {
         "total_indicators": total,
         "by_type": by_type,
         "high_confidence_count": high_confidence,
@@ -913,37 +1376,81 @@ async def get_statistics():
         "last_updated": datetime.utcnow().isoformat()
     }
 
-@app.websocket("/ws/live-feed")
-async def websocket_live_feed(websocket: WebSocket):
-    """WebSocket endpoint for real-time indicator feed"""
-    
-    await websocket.accept()
-    
-    try:
-        # Query recent high-severity indicators
+    # Cache for 1 hour
+    if redis_client:
+        await redis_client.setex(cache_key, 3600, json.dumps(stats))
+
+    return stats
+
+@app.get("/api/v1/live-feed")
+async def live_feed_sse(
+    request: Request,
+    api_key: str = Depends(verify_api_key)
+):
+    """
+    Server-Sent Events (SSE) endpoint for real-time high-severity indicator feed
+
+    Requires: X-API-Key header
+    Streams Critical/High severity indicators as they're enriched
+
+    Usage:
+        const eventSource = new EventSource('/api/v1/live-feed', {
+            headers: {'X-API-Key': 'your-key'}
+        });
+        eventSource.onmessage = (event) => console.log(JSON.parse(event.data));
+    """
+
+    async def event_generator() -> AsyncGenerator[str, None]:
+        """Generate SSE events"""
+        last_check = datetime.utcnow()
+
         while True:
-            since = (datetime.utcnow() - timedelta(minutes=1)).isoformat()
-            query = f"""
-                SELECT * FROM c 
-                WHERE c.last_seen > '{since}' 
+            # Check for client disconnect
+            if await request.is_disconnected():
+                logging.info("Client disconnected from SSE feed")
+                break
+
+            # Query for high-severity indicators since last check
+            since = last_check.isoformat()
+            query = """
+                SELECT * FROM c
+                WHERE c.last_seen > @since
                 AND c.enrichment.severity IN ('Critical', 'High')
                 ORDER BY c.last_seen DESC
             """
-            
-            indicators = cosmos_client.query_items("enriched_indicators", query)
-            
-            if indicators:
-                await websocket.send_json({
-                    "timestamp": datetime.utcnow().isoformat(),
-                    "indicators": indicators
-                })
-            
+            parameters = [{"name": "@since", "value": since}]
+
+            try:
+                indicators = cosmos_client.query_items("enriched_indicators", query, parameters)
+
+                if indicators:
+                    # Send as SSE event
+                    data = json.dumps({
+                        "timestamp": datetime.utcnow().isoformat(),
+                        "count": len(indicators),
+                        "indicators": indicators
+                    })
+
+                    # SSE format: "data: {json}\n\n"
+                    yield f"data: {data}\n\n"
+
+                last_check = datetime.utcnow()
+
+            except Exception as e:
+                logging.error(f"Error fetching indicators: {e}")
+
             # Check every 30 seconds
             await asyncio.sleep(30)
-            
-    except Exception as e:
-        logging.error(f"WebSocket error: {e}")
-        await websocket.close()
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no"  # Disable nginx buffering
+        }
+    )
 ```
 
 **Pydantic Models:**
@@ -1092,39 +1599,65 @@ export default Dashboard;
 
 **Core Services:**
 1. **Azure Functions** (Consumption Plan)
-   - Ingestion functions (3 timer triggers)
+   - Ingestion functions (3 timer triggers hourly)
    - Normalization function (Cosmos trigger)
-   - Deduplication function (timer trigger)
+   - Deduplication function (hourly timer trigger)
    - Enrichment function (Cosmos trigger)
-   - Estimated cost: ~$10-20/month
+   - Backfill function (HTTP triggered)
+   - Estimated executions: ~2.5M/month
+   - **Estimated cost: $15-25/month** (beyond free tier)
 
 2. **Azure Cosmos DB** (Serverless)
    - Database: `threatstream`
-   - Containers: `raw_indicators`, `normalized_indicators`, `deduplicated_indicators`, `enriched_indicators`
-   - Partition key: `/indicator_type`
-   - Estimated cost: ~$25-50/month (based on volume)
+   - Containers: `raw_indicators` (TTL: 90 days), `normalized_indicators`, `deduplicated_indicators`, `enriched_indicators`
+   - Partition key: `/partition_key` (hash-based distribution)
+   - Estimated volume: 100K indicators, 20GB storage
+   - RU consumption: ~500K RUs/day
+   - **Estimated cost: $40-80/month** (RUs can spike)
 
-3. **Azure OpenAI**
-   - Model: GPT-4o (2024-08-06)
-   - Usage: ~1000 enrichments/day @ 500 tokens each
+3. **Azure Cache for Redis** (Basic C0: 250MB)
+   - Caching for API responses, stats
+   - Cache hit ratio target: 70%+
+   - **Estimated cost: $16/month**
+
+4. **Azure OpenAI**
+   - Model: GPT-4o-2024-08-06 (configurable)
+   - Usage: ~300-500 enrichments/day @ 600 tokens avg per enrichment
    - Pricing: $2.50/1M input tokens, $10/1M output tokens
-   - Estimated cost: ~$20-40/month
+   - Monthly: ~15M input tokens, ~6M output tokens
+   - **Estimated cost: $40-100/month** (can vary widely based on filtering)
 
-4. **Azure Container Apps**
-   - FastAPI application
-   - 1 vCPU, 2GB RAM
-   - Estimated cost: ~$15-30/month
+5. **Azure Container Apps** (with Container Registry)
+   - FastAPI application: 1 vCPU, 2GB RAM
+   - Azure Container Registry (Basic): $5/month
+   - Container Apps consumption: ~720 hours/month
+   - **Estimated cost: $30-45/month**
 
-5. **Azure Key Vault**
-   - Store API keys and secrets
-   - Estimated cost: ~$1/month
+6. **Azure Key Vault** (Standard)
+   - Store API keys and secrets (10-15 secrets)
+   - **Estimated cost: $1-2/month**
 
-6. **Azure Monitor**
-   - Application Insights
-   - Log Analytics
-   - Estimated cost: ~$5-10/month
+7. **Azure Monitor + Application Insights**
+   - Application Insights (5GB data ingestion/month)
+   - Log Analytics workspace
+   - Alert rules (5-10 alerts)
+   - **Estimated cost: $10-20/month**
 
-**Total Monthly Cost:** ~$76-151 (well within free tier + minimal paid)
+**Total Monthly Cost: $152-288/month**
+
+**Cost Optimization Strategies:**
+- Use Cosmos DB emulator for local dev
+- Filter enrichment to score >= 85 (not 75) to reduce OpenAI calls
+- Aggressive Redis caching (hit ratio > 80%)
+- Set Azure cost alerts at $50/week ($200/month)
+- Start with OTX only (skip AbuseIPDB paid tier)
+- Scale down Container Apps replicas during off-hours
+
+**MVP Cost (First Month):**
+- Skip AbuseIPDB/URLhaus initially: -$0
+- Reduce enrichment threshold to 90: -$30-50 OpenAI
+- Use free tier maximally
+- **Realistic MVP cost: $100-150/month**
 
 ### Infrastructure as Code (Terraform)
 
@@ -1181,7 +1714,10 @@ resource "azurerm_cosmosdb_sql_container" "raw_indicators" {
   resource_group_name = azurerm_cosmosdb_account.threatstream.resource_group_name
   account_name        = azurerm_cosmosdb_account.threatstream.name
   database_name       = azurerm_cosmosdb_sql_database.threatstream.name
-  partition_key_path  = "/indicator_type"
+  partition_key_path  = "/partition_key"  # Hash-based partition key
+
+  # TTL: Auto-delete raw indicators after 90 days
+  default_ttl = 7776000  # 90 days in seconds
 }
 
 resource "azurerm_cosmosdb_sql_container" "normalized_indicators" {
@@ -1189,7 +1725,7 @@ resource "azurerm_cosmosdb_sql_container" "normalized_indicators" {
   resource_group_name = azurerm_cosmosdb_account.threatstream.resource_group_name
   account_name        = azurerm_cosmosdb_account.threatstream.name
   database_name       = azurerm_cosmosdb_sql_database.threatstream.name
-  partition_key_path  = "/indicator_type"
+  partition_key_path  = "/partition_key"
 }
 
 resource "azurerm_cosmosdb_sql_container" "deduplicated_indicators" {
@@ -1197,7 +1733,7 @@ resource "azurerm_cosmosdb_sql_container" "deduplicated_indicators" {
   resource_group_name = azurerm_cosmosdb_account.threatstream.resource_group_name
   account_name        = azurerm_cosmosdb_account.threatstream.name
   database_name       = azurerm_cosmosdb_sql_database.threatstream.name
-  partition_key_path  = "/indicator_type"
+  partition_key_path  = "/partition_key"
 }
 
 resource "azurerm_cosmosdb_sql_container" "enriched_indicators" {
@@ -1205,7 +1741,46 @@ resource "azurerm_cosmosdb_sql_container" "enriched_indicators" {
   resource_group_name = azurerm_cosmosdb_account.threatstream.resource_group_name
   account_name        = azurerm_cosmosdb_account.threatstream.name
   database_name       = azurerm_cosmosdb_sql_database.threatstream.name
-  partition_key_path  = "/indicator_type"
+  partition_key_path  = "/partition_key"
+}
+
+# Azure Cache for Redis
+resource "azurerm_redis_cache" "threatstream" {
+  name                = "redis-threatstream-prod"
+  location            = azurerm_resource_group.threatstream.location
+  resource_group_name = azurerm_resource_group.threatstream.name
+  capacity            = 0  # C0 (250MB)
+  family              = "C"
+  sku_name            = "Basic"
+  enable_non_ssl_port = false
+  minimum_tls_version = "1.2"
+}
+
+# Application Insights
+resource "azurerm_application_insights" "threatstream" {
+  name                = "appi-threatstream-prod"
+  location            = azurerm_resource_group.threatstream.location
+  resource_group_name = azurerm_resource_group.threatstream.name
+  application_type    = "web"
+  retention_in_days   = 30
+}
+
+# Log Analytics Workspace
+resource "azurerm_log_analytics_workspace" "threatstream" {
+  name                = "law-threatstream-prod"
+  location            = azurerm_resource_group.threatstream.location
+  resource_group_name = azurerm_resource_group.threatstream.name
+  sku                 = "PerGB2018"
+  retention_in_days   = 30
+}
+
+# Container Registry
+resource "azurerm_container_registry" "threatstream" {
+  name                = "acrthreatstreamproduct"  # Must be globally unique
+  resource_group_name = azurerm_resource_group.threatstream.name
+  location            = azurerm_resource_group.threatstream.location
+  sku                 = "Basic"
+  admin_enabled       = true
 }
 
 # Function App
@@ -1234,27 +1809,68 @@ resource "azurerm_linux_function_app" "threatstream" {
   storage_account_access_key = azurerm_storage_account.functions.primary_access_key
   service_plan_id            = azurerm_service_plan.functions.id
 
+  # Managed Identity for secure Key Vault access
+  identity {
+    type = "SystemAssigned"
+  }
+
   site_config {
     application_stack {
       python_version = "3.11"
     }
+
+    # Application Insights integration
+    application_insights_key               = azurerm_application_insights.threatstream.instrumentation_key
+    application_insights_connection_string = azurerm_application_insights.threatstream.connection_string
   }
 
   app_settings = {
     "COSMOS_ENDPOINT"           = azurerm_cosmosdb_account.threatstream.endpoint
     "COSMOS_CONNECTION"         = azurerm_cosmosdb_account.threatstream.connection_strings[0]
     "OPENAI_ENDPOINT"           = "@Microsoft.KeyVault(SecretUri=${azurerm_key_vault_secret.openai_endpoint.id})"
+    "OPENAI_MODEL"              = "gpt-4o-2024-08-06"  # Configurable model
     "KEY_VAULT_NAME"            = azurerm_key_vault.threatstream.name
+    "APPINSIGHTS_INSTRUMENTATIONKEY" = azurerm_application_insights.threatstream.instrumentation_key
   }
 }
 
 # Key Vault
+data "azurerm_client_config" "current" {}
+
 resource "azurerm_key_vault" "threatstream" {
   name                = "kv-threatstream-prod"
   location            = azurerm_resource_group.threatstream.location
   resource_group_name = azurerm_resource_group.threatstream.name
   tenant_id           = data.azurerm_client_config.current.tenant_id
   sku_name            = "standard"
+
+  # Enable soft delete and purge protection
+  soft_delete_retention_days = 7
+  purge_protection_enabled   = false  # Set to true in production
+}
+
+# Grant Function App access to Key Vault
+resource "azurerm_key_vault_access_policy" "function_app" {
+  key_vault_id = azurerm_key_vault.threatstream.id
+  tenant_id    = data.azurerm_client_config.current.tenant_id
+  object_id    = azurerm_linux_function_app.threatstream.identity[0].principal_id
+
+  secret_permissions = [
+    "Get",
+    "List"
+  ]
+}
+
+# Grant Container App access to Key Vault
+resource "azurerm_key_vault_access_policy" "container_app" {
+  key_vault_id = azurerm_key_vault.threatstream.id
+  tenant_id    = data.azurerm_client_config.current.tenant_id
+  object_id    = azurerm_container_app.api.identity[0].principal_id
+
+  secret_permissions = [
+    "Get",
+    "List"
+  ]
 }
 
 # Container App for FastAPI
@@ -1270,10 +1886,15 @@ resource "azurerm_container_app" "api" {
   resource_group_name          = azurerm_resource_group.threatstream.name
   revision_mode                = "Single"
 
+  # Managed Identity for Key Vault access
+  identity {
+    type = "SystemAssigned"
+  }
+
   template {
     container {
       name   = "threatstream-api"
-      image  = "your-acr.azurecr.io/threatstream-api:latest"
+      image  = "${azurerm_container_registry.threatstream.login_server}/threatstream-api:latest"
       cpu    = 1.0
       memory = "2Gi"
 
@@ -1281,12 +1902,41 @@ resource "azurerm_container_app" "api" {
         name  = "COSMOS_ENDPOINT"
         value = azurerm_cosmosdb_account.threatstream.endpoint
       }
+
+      env {
+        name  = "REDIS_URL"
+        value = "rediss://:${azurerm_redis_cache.threatstream.primary_access_key}@${azurerm_redis_cache.threatstream.hostname}:6380"
+      }
+
+      env {
+        name  = "API_KEYS"
+        value = "@Microsoft.KeyVault(SecretUri=${azurerm_key_vault_secret.api_keys.id})"
+      }
+
+      env {
+        name  = "APPINSIGHTS_INSTRUMENTATIONKEY"
+        value = azurerm_application_insights.threatstream.instrumentation_key
+      }
     }
+
+    min_replicas = 1
+    max_replicas = 5
   }
 
   ingress {
     external_enabled = true
     target_port      = 8000
+    traffic_weight {
+      percentage      = 100
+      latest_revision = true
+    }
+  }
+
+  # Pull from ACR using managed identity
+  registry {
+    server               = azurerm_container_registry.threatstream.login_server
+    username             = azurerm_container_registry.threatstream.admin_username
+    password_secret_name = azurerm_container_registry.threatstream.admin_password
   }
 }
 ```
@@ -1357,43 +2007,42 @@ jobs:
 
 ## Development Timeline & Claude Code Sessions
 
-### Week 1: Data Ingestion & Processing (40 hours)
+### Week 1: Data Ingestion & Processing (45-50 hours)
 
-**Day 1-2: Module 1 Setup (16 hours)**
+**Day 1-2: Module 1 Setup (18 hours)**
 - **Session 1** (4 hours): Project setup, Azure resources, base connector
-- **Session 2** (4 hours): OTX and AbuseIPDB connectors
-- **Session 3** (4 hours): URLhaus connector, Cosmos DB client
+- **Session 2** (5 hours): OTX connector + schema validation
+- **Session 3** (5 hours): Cosmos DB client with security fixes + backfill function
 - **Session 4** (4 hours): Testing, error handling, logging
 
-**Day 3: Module 1 Deployment (8 hours)**
-- **Session 5** (4 hours): Azure Functions deployment, configuration
-- **Session 6** (4 hours): End-to-end testing, monitoring setup
+**Day 3-4: Module 1 Deployment (10 hours)**
+- **Session 5** (5 hours): Azure Functions deployment, Terraform infrastructure
+- **Session 6** (5 hours): End-to-end testing, monitoring setup, cost alerts
 
-**Day 4-5: Module 2 (16 hours)**
-- **Session 7** (4 hours): Normalization logic, Cosmos trigger
-- **Session 8** (4 hours): Deduplication algorithm
+**Day 5-7: Module 2 (17-20 hours)**
+- **Session 7** (5 hours): Normalization logic, Cosmos trigger
+- **Session 8** (5 hours): Deduplication algorithm (hourly timing)
 - **Session 9** (4 hours): Integration tests
-- **Session 10** (4 hours): Deployment and validation
+- **Session 10** (3-6 hours): Deployment, validation, debugging
 
-### Week 2: AI Enrichment & API (40-48 hours)
+### Week 2-3: AI Enrichment & API (50-65 hours)
 
-**Day 1-2: Module 3 (16 hours)**
-- **Session 11** (4 hours): OpenAI integration, prompt engineering
-- **Session 12** (4 hours): Enrichment logic, MITRE mapping
-- **Session 13** (4 hours): Cost optimization, caching
-- **Session 14** (4 hours): Testing and deployment
+**Day 1-3: Module 3 (20-25 hours)**
+- **Session 11** (5 hours): OpenAI integration with structured outputs, MITRE validator
+- **Session 12** (5 hours): Enrichment logic, prompt engineering
+- **Session 13** (5 hours): Token tracking, cost optimization
+- **Session 14** (5-10 hours): Testing, deployment, debugging
 
-**Day 3-4: Module 4 API (16 hours)**
-- **Session 15** (4 hours): FastAPI setup, basic endpoints
-- **Session 16** (4 hours): Relationship queries, WebSocket
-- **Session 17** (4 hours): API tests, documentation
-- **Session 18** (4 hours): Container Apps deployment
+**Day 4-6: Module 4 API (25-30 hours)**
+- **Session 15** (5 hours): FastAPI setup with authentication & rate limiting
+- **Session 16** (5 hours): Redis caching integration
+- **Session 17** (5 hours): All endpoints with parameterized queries (NO SQL injection)
+- **Session 18** (5 hours): SSE endpoint (replace WebSocket)
+- **Session 19** (5-10 hours): API tests, documentation, Container Apps deployment
 
-**Day 5: Dashboard & Polish (8-16 hours)**
-- **Session 19** (4 hours): React dashboard basics
-- **Session 20** (4 hours): Dashboard deployment, final testing
-- **Optional Session 21** (4 hours): Advanced visualizations
-- **Optional Session 22** (4 hours): Performance optimization
+**Day 7 (Optional): Dashboard & Final Polish (5-10 hours)**
+- **Session 20** (5-10 hours): Simple React dashboard OR enhanced API documentation
+- OPTIONAL: This can be skipped for MVP - focus on robust API instead
 
 ---
 
@@ -1887,22 +2536,394 @@ docker push youracr.azurecr.io/threatstream-api:latest
 
 ## Testing
 
+### Unit Tests
+
 ```bash
-# Run all tests
-pytest tests/ --cov=. --cov-report=html
+# Run all tests with coverage
+pytest tests/ --cov=. --cov-report=html --cov-report=term
 
 # Run specific module
 pytest tests/test_connectors.py -v
 
-# Integration tests
-pytest tests/integration/ -v
+# Run with mocked external services (NO real API calls)
+pytest tests/ -v --mock-external
 ```
 
-**Coverage:** 82% overall
-- Connectors: 85%
-- Normalization: 80%
-- Enrichment: 75%
-- API: 88%
+**Target Coverage:** 80%+ overall
+- Connectors: 85%+ (with mocked API responses)
+- Normalization: 80%+
+- Enrichment: 75%+ (with mocked OpenAI)
+- API: 85%+ (with mocked Cosmos & Redis)
+
+### Integration Tests
+
+```python
+# tests/integration/test_end_to_end_pipeline.py
+import pytest
+from datetime import datetime
+import asyncio
+
+@pytest.mark.integration
+async def test_full_pipeline_otx_to_enriched():
+    """
+    End-to-end test: OTX ingestion → Normalization → Deduplication → Enrichment → API query
+
+    This test validates the entire pipeline works correctly.
+    """
+
+    # Step 1: Ingest from OTX (using test API or fixture)
+    from ingestion.connectors.otx_connector import OTXConnector
+    from ingestion.storage.cosmos_client import CosmosClient
+
+    connector = OTXConnector(api_key=os.getenv("OTX_TEST_KEY"))
+    cosmos = CosmosClient()
+
+    # Fetch a small batch
+    indicators = connector.fetch_indicators(since=datetime.utcnow())
+    assert len(indicators) > 0, "Should fetch at least 1 indicator"
+
+    # Store in raw container
+    for ind in indicators[:5]:  # Test with 5 indicators only
+        cosmos.upsert_item("raw_indicators", ind)
+
+    # Step 2: Trigger normalization (simulate Cosmos trigger)
+    from normalization.indicator_normalizer import IndicatorNormalizer
+    normalizer = IndicatorNormalizer()
+
+    for ind in indicators[:5]:
+        normalized = normalizer.normalize(ind)
+        cosmos.upsert_item("normalized_indicators", normalized)
+
+    # Step 3: Trigger deduplication
+    from deduplication.deduplicate import merge_duplicates
+
+    # Query normalized
+    query = "SELECT * FROM c"
+    normalized_indicators = cosmos.query_items("normalized_indicators", query)
+
+    # Group and deduplicate
+    grouped = {}
+    for ind in normalized_indicators:
+        key = ind["indicator_value"]
+        if key not in grouped:
+            grouped[key] = []
+        grouped[key].append(ind)
+
+    for indicator_value, duplicates in grouped.items():
+        deduplicated = merge_duplicates(duplicates)
+        cosmos.upsert_item("deduplicated_indicators", deduplicated)
+
+    # Step 4: Trigger enrichment (only if high confidence)
+    from enrichment.threat_enrichment_engine import ThreatEnrichmentEngine
+
+    enrichment_engine = ThreatEnrichmentEngine()
+
+    deduplicated_indicators = cosmos.query_items("deduplicated_indicators", query)
+
+    for ind in deduplicated_indicators:
+        if ind["confidence_score"] >= 75:
+            enriched = await enrichment_engine.enrich_indicator(ind)
+            cosmos.upsert_item("enriched_indicators", enriched)
+            break  # Test with just one to save OpenAI costs
+
+    # Step 5: Query via API
+    from api.main import app
+    from fastapi.testclient import TestClient
+
+    client = TestClient(app)
+
+    response = client.get("/api/v1/indicators?min_confidence=75",
+                          headers={"X-API-Key": os.getenv("TEST_API_KEY")})
+
+    assert response.status_code == 200
+    data = response.json()
+    assert len(data) > 0, "Should return at least 1 enriched indicator"
+
+    # Validate enrichment structure
+    indicator = data[0]
+    assert "enrichment" in indicator
+    assert "mitre_ttps" in indicator["enrichment"]
+    assert "severity" in indicator["enrichment"]
+
+    print("✅ End-to-end pipeline test PASSED")
+
+@pytest.mark.integration
+def test_api_authentication_required():
+    """Test that API requires authentication"""
+    from api.main import app
+    from fastapi.testclient import TestClient
+
+    client = TestClient(app)
+
+    # No API key - should fail
+    response = client.get("/api/v1/indicators")
+    assert response.status_code == 401
+
+    # Invalid API key - should fail
+    response = client.get("/api/v1/indicators",
+                          headers={"X-API-Key": "invalid-key"})
+    assert response.status_code == 401
+
+    # Valid API key - should succeed
+    response = client.get("/api/v1/indicators",
+                          headers={"X-API-Key": os.getenv("TEST_API_KEY")})
+    assert response.status_code == 200
+
+@pytest.mark.integration
+async def test_redis_caching():
+    """Test that Redis caching works correctly"""
+    from api.main import app, redis_client
+    from fastapi.testclient import TestClient
+
+    client = TestClient(app)
+
+    # First request - should miss cache
+    response1 = client.get("/api/v1/stats",
+                           headers={"X-API-Key": os.getenv("TEST_API_KEY")})
+    assert response1.status_code == 200
+
+    # Check cache was populated
+    cached = await redis_client.get("stats:global")
+    assert cached is not None, "Cache should be populated"
+
+    # Second request - should hit cache
+    response2 = client.get("/api/v1/stats",
+                           headers={"X-API-Key": os.getenv("TEST_API_KEY")})
+    assert response2.status_code == 200
+    assert response1.json() == response2.json(), "Cached response should match"
+```
+
+**Running Integration Tests:**
+```bash
+# Requires real Azure resources (use dev environment)
+pytest tests/integration/ -v -m integration
+
+# Set environment variables first:
+export OTX_TEST_KEY="your-otx-key"
+export TEST_API_KEY="your-test-api-key"
+export COSMOS_ENDPOINT="https://your-cosmos.documents.azure.com:443/"
+export REDIS_URL="redis://localhost:6379"
+```
+
+## Troubleshooting Guide
+
+### Common Issues & Solutions
+
+#### 1. **Cosmos DB: Hot Partition / High RU Consumption**
+
+**Problem:** RU charges are very high, or queries are slow.
+
+**Cause:** Using `/indicator_type` as partition key creates unbalanced partitions (IPv4 dominates).
+
+**Solution:**
+```python
+# Use hash-based partition key instead
+def _generate_partition_key(indicator_value: str, indicator_type: str) -> str:
+    hash_prefix = hashlib.md5(indicator_value.encode()).hexdigest()[:2]
+    return f"{indicator_type}_{hash_prefix}"
+```
+
+#### 2. **Azure OpenAI: 403 Forbidden**
+
+**Problem:** `AuthenticationError: Access denied` when calling OpenAI.
+
+**Causes:**
+- Azure OpenAI not approved for your subscription
+- Incorrect API key or endpoint
+- Model not deployed in your region
+
+**Solutions:**
+1. Verify OpenAI access: Apply at https://aka.ms/oai/access (takes 1-2 weeks)
+2. Check model deployment:
+   ```bash
+   az cognitiveservices account deployment list \
+     --name your-openai-resource \
+     --resource-group your-rg
+   ```
+3. Use standard OpenAI API as fallback (requires code changes)
+
+#### 3. **Functions: Cold Start Delays**
+
+**Problem:** First request after inactivity takes 20-30 seconds.
+
+**Cause:** Azure Functions Consumption Plan has cold starts.
+
+**Solutions:**
+- Accept it (cost-effective for portfolio project)
+- Use Premium Plan (adds $150+/month - not recommended for portfolio)
+- Keep functions warm with ping endpoint (hacky)
+
+#### 4. **API: SQL Injection Vulnerabilities**
+
+**Problem:** User input in queries without parameterization.
+
+**Bad:**
+```python
+query = f"SELECT * FROM c WHERE c.value = '{user_input}'"
+```
+
+**Good:**
+```python
+query = "SELECT * FROM c WHERE c.value = @value"
+parameters = [{"name": "@value", "value": user_input}]
+cosmos_client.query_items(container, query, parameters)
+```
+
+#### 5. **Costs Spiraling Out of Control**
+
+**Problem:** Azure bill is $300+ in first week.
+
+**Common Causes:**
+- OpenAI enriching ALL indicators (not just high-confidence)
+- No TTL on Cosmos DB raw data
+- Querying across partitions excessively
+
+**Immediate Fixes:**
+1. Set cost alert:
+   ```bash
+   az consumption budget create \
+     --amount 200 \
+     --budget-name threatstream-monthly \
+     --time-period-start 2024-01-01
+   ```
+
+2. Increase enrichment threshold:
+   ```python
+   if indicator["confidence_score"] >= 90:  # Was 75
+       enrich_indicator(indicator)
+   ```
+
+3. Enable TTL on raw container (Terraform):
+   ```hcl
+   default_ttl = 7776000  # 90 days
+   ```
+
+4. Use Cosmos emulator locally:
+   ```bash
+   docker run -p 8081:8081 mcr.microsoft.com/cosmosdb/linux/azure-cosmos-emulator
+   ```
+
+#### 6. **Redis Connection Failures**
+
+**Problem:** `ConnectionError: Error connecting to Redis`
+
+**Causes:**
+- SSL/TLS configuration mismatch
+- Wrong connection string format
+- Redis firewall blocking Container Apps
+
+**Solution:**
+```python
+# Correct Redis URL format for Azure Cache
+redis_url = f"rediss://:{redis_key}@{redis_host}:6380"  # Note: rediss (SSL)
+
+# Allow Azure services in Redis firewall
+az redis firewall-rules create \
+  --name allow-azure \
+  --resource-group rg-threatstream-prod \
+  --rule-name azure-services \
+  --start-ip 0.0.0.0 \
+  --end-ip 0.0.0.0
+```
+
+#### 7. **Function App: Key Vault Access Denied**
+
+**Problem:** `ClientAuthenticationError: Failed to get token`
+
+**Cause:** Managed identity not granted access to Key Vault.
+
+**Solution:**
+```bash
+# Get Function App managed identity
+PRINCIPAL_ID=$(az functionapp identity show \
+  --name func-threatstream-prod \
+  --resource-group rg-threatstream-prod \
+  --query principalId -o tsv)
+
+# Grant access
+az keyvault set-policy \
+  --name kv-threatstream-prod \
+  --object-id $PRINCIPAL_ID \
+  --secret-permissions get list
+```
+
+#### 8. **API Rate Limiting Not Working**
+
+**Problem:** Users can spam API despite rate limit decorator.
+
+**Cause:** `slowapi` uses IP address by default, which fails behind proxies/load balancers.
+
+**Solution:**
+```python
+# Use API key for rate limiting instead of IP
+from slowapi import Limiter
+
+def get_api_key(request: Request):
+    return request.headers.get("X-API-Key", "anonymous")
+
+limiter = Limiter(key_func=get_api_key)
+```
+
+#### 9. **Dashboard React App: CORS Errors**
+
+**Problem:** `Access-Control-Allow-Origin` errors in browser console.
+
+**Solution:**
+```python
+# FastAPI: Update CORS middleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["https://your-dashboard-domain.com"],  # Specific domain
+    allow_credentials=True,
+    allow_methods=["GET", "POST"],
+    allow_headers=["X-API-Key", "Content-Type"],
+)
+```
+
+#### 10. **Deduplication Creating Duplicate Records**
+
+**Problem:** Multiple deduplicated records for same indicator.
+
+**Cause:** Not using `upsert`, or ID collision.
+
+**Solution:**
+```python
+# Ensure consistent ID generation
+deduplicated["id"] = f"dedup_{indicator_value}"  # Deterministic ID
+
+# Use upsert, not insert
+cosmos_client.upsert_item("deduplicated_indicators", deduplicated)
+```
+
+### Debugging Tips
+
+**Enable Detailed Logging:**
+```python
+import logging
+logging.basicConfig(level=logging.DEBUG)
+```
+
+**Monitor Function Executions:**
+```bash
+# View live logs
+az functionapp logs tail \
+  --name func-threatstream-prod \
+  --resource-group rg-threatstream-prod
+```
+
+**Check Cosmos DB Metrics:**
+- Portal → Cosmos DB → Metrics → Request Units
+- Look for throttling (429 errors)
+
+**Test API Locally:**
+```bash
+uvicorn api.main:app --reload --port 8000
+
+# Test endpoint
+curl -H "X-API-Key: test-key" http://localhost:8000/api/v1/stats
+```
+
+---
 
 ## Future Enhancements
 
@@ -2035,9 +3056,14 @@ MIT License - See LICENSE file
 - Module 4 (API): 16 hours
 - Dashboard & Polish: 8-16 hours
 
-**Total: 80-88 hours over 2 weeks**
+**Total: 120-165 hours over 3-4 weeks**
 
-This aligns with portfolio research showing 250-300 hours total across 2-3 projects, leaving time for Project 2 and ongoing refinement.
+**Reality Check:**
+- **Minimum (experienced + no blockers):** 120 hours
+- **Expected (learning curve + debugging):** 140-150 hours
+- **Maximum (unfamiliar with Azure):** 160-180 hours
+
+This aligns with realistic portfolio development timelines, accounting for learning, debugging, and iteration.
 
 ---
 
