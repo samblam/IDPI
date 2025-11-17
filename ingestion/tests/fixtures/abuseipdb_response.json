@@ -1,0 +1,20 @@
+{
+  "data": [
+    {
+      "ipAddress": "1.2.3.4",
+      "abuseConfidenceScore": 100,
+      "totalReports": 25,
+      "lastReportedAt": "2024-01-15T10:30:00+00:00",
+      "countryCode": "US",
+      "isWhitelisted": false
+    },
+    {
+      "ipAddress": "5.6.7.8",
+      "abuseConfidenceScore": 75,
+      "totalReports": 10,
+      "lastReportedAt": "2024-01-14T08:20:00+00:00",
+      "countryCode": "CN",
+      "isWhitelisted": false
+    }
+  ]
+}
