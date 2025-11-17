@@ -2005,6 +2005,591 @@ jobs:
 
 ---
 
+## Repository Best Practices & Tooling
+
+### Docker Compose for Local Development
+
+**docker-compose.yml** - Full local development stack:
+
+```yaml
+version: '3.8'
+
+services:
+  # Cosmos DB Emulator
+  cosmos-emulator:
+    image: mcr.microsoft.com/cosmosdb/linux/azure-cosmos-emulator
+    ports:
+      - "8081:8081"
+      - "10251:10251"
+      - "10252:10252"
+      - "10253:10253"
+      - "10254:10254"
+    environment:
+      - AZURE_COSMOS_EMULATOR_PARTITION_COUNT=10
+      - AZURE_COSMOS_EMULATOR_ENABLE_DATA_PERSISTENCE=true
+    volumes:
+      - cosmos-data:/tmp/cosmos
+
+  # Redis Cache
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    command: redis-server --appendonly yes
+
+  # FastAPI Backend
+  api:
+    build:
+      context: ./api
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      - COSMOS_ENDPOINT=https://cosmos-emulator:8081/
+      - COSMOS_KEY=C2y6yDjf5/R+ob0N8A7Cgv30VRDJIWEHLM+4QDU5DE2nQ9nDuVTqobD4b8mGGyPMbIZnqyMsEcaGQy67XIw/Jw==
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - OPENAI_ENDPOINT=${OPENAI_ENDPOINT}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+    depends_on:
+      - cosmos-emulator
+      - redis
+    volumes:
+      - ./api:/app
+    command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+
+  # React Dashboard
+  dashboard:
+    build:
+      context: ./dashboard
+      dockerfile: Dockerfile
+      target: development
+    ports:
+      - "5173:5173"
+    environment:
+      - VITE_API_BASE_URL=http://localhost:8000
+      - VITE_API_KEY=${VITE_API_KEY}
+    depends_on:
+      - api
+    volumes:
+      - ./dashboard:/app
+      - /app/node_modules
+    command: npm run dev
+
+volumes:
+  cosmos-data:
+  redis-data:
+```
+
+**Usage**:
+```bash
+# Start all services
+docker-compose up -d
+
+# View logs
+docker-compose logs -f api
+
+# Stop all services
+docker-compose down
+
+# Rebuild after changes
+docker-compose up --build
+```
+
+### Dashboard Dockerfile
+
+**dashboard/Dockerfile** - Multi-stage build for production:
+
+```dockerfile
+# Stage 1: Build
+FROM node:18-alpine AS builder
+WORKDIR /app
+
+# Copy package files
+COPY package*.json ./
+RUN npm ci
+
+# Copy source code
+COPY . .
+
+# Build arguments for environment variables
+ARG VITE_API_BASE_URL
+ARG VITE_API_KEY
+ENV VITE_API_BASE_URL=$VITE_API_BASE_URL
+ENV VITE_API_KEY=$VITE_API_KEY
+
+# Build the app
+RUN npm run build
+
+# Stage 2: Development
+FROM node:18-alpine AS development
+WORKDIR /app
+COPY package*.json ./
+RUN npm ci
+COPY . .
+CMD ["npm", "run", "dev", "--", "--host", "0.0.0.0"]
+
+# Stage 3: Production
+FROM nginx:alpine AS production
+COPY --from=builder /app/dist /usr/share/nginx/html
+
+# Custom nginx config for SPA
+RUN echo 'server { \
+    listen 80; \
+    location / { \
+        root /usr/share/nginx/html; \
+        index index.html; \
+        try_files $uri $uri/ /index.html; \
+    } \
+}' > /etc/nginx/conf.d/default.conf
+
+EXPOSE 80
+CMD ["nginx", "-g", "daemon off;"]
+```
+
+### Docker Ignore Files
+
+**api/.dockerignore**:
+```
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+.pytest_cache/
+.coverage
+htmlcov/
+dist/
+build/
+*.egg-info/
+.env
+.env.local
+*.log
+.git/
+.gitignore
+README.md
+tests/
+docs/
+```
+
+**dashboard/.dockerignore**:
+```
+node_modules/
+npm-debug.log*
+.npm
+.env
+.env.local
+.env.*.local
+dist/
+.git/
+.gitignore
+README.md
+*.md
+.vscode/
+.idea/
+coverage/
+.DS_Store
+```
+
+### GitHub Repository Configuration
+
+#### Issue Templates
+
+**.github/ISSUE_TEMPLATE/bug_report.md**:
+```markdown
+---
+name: Bug report
+about: Create a report to help us improve
+title: '[BUG] '
+labels: bug
+assignees: ''
+---
+
+**Describe the bug**
+A clear and concise description of what the bug is.
+
+**To Reproduce**
+Steps to reproduce the behavior:
+1. Go to '...'
+2. Click on '....'
+3. See error
+
+**Expected behavior**
+A clear and concise description of what you expected to happen.
+
+**Screenshots**
+If applicable, add screenshots to help explain your problem.
+
+**Environment:**
+ - OS: [e.g. Ubuntu 22.04]
+ - Python Version: [e.g. 3.11]
+ - Browser (for dashboard): [e.g. Chrome 120]
+
+**Additional context**
+Add any other context about the problem here.
+```
+
+**.github/ISSUE_TEMPLATE/feature_request.md**:
+```markdown
+---
+name: Feature request
+about: Suggest an idea for this project
+title: '[FEATURE] '
+labels: enhancement
+assignees: ''
+---
+
+**Is your feature request related to a problem? Please describe.**
+A clear and concise description of what the problem is. Ex. I'm always frustrated when [...]
+
+**Describe the solution you'd like**
+A clear and concise description of what you want to happen.
+
+**Describe alternatives you've considered**
+A clear and concise description of any alternative solutions or features you've considered.
+
+**Additional context**
+Add any other context or screenshots about the feature request here.
+```
+
+#### Pull Request Template
+
+**.github/pull_request_template.md**:
+```markdown
+## Description
+Please include a summary of the changes and which issue is fixed.
+
+Fixes # (issue)
+
+## Type of change
+- [ ] Bug fix (non-breaking change which fixes an issue)
+- [ ] New feature (non-breaking change which adds functionality)
+- [ ] Breaking change (fix or feature that would cause existing functionality to not work as expected)
+- [ ] Documentation update
+
+## How Has This Been Tested?
+Please describe the tests that you ran to verify your changes.
+
+- [ ] Unit tests
+- [ ] Integration tests
+- [ ] Manual testing
+
+## Checklist:
+- [ ] My code follows the style guidelines of this project
+- [ ] I have performed a self-review of my own code
+- [ ] I have commented my code, particularly in hard-to-understand areas
+- [ ] I have made corresponding changes to the documentation
+- [ ] My changes generate no new warnings
+- [ ] I have added tests that prove my fix is effective or that my feature works
+- [ ] New and existing unit tests pass locally with my changes
+- [ ] Any dependent changes have been merged and published
+
+## Screenshots (if applicable):
+```
+
+#### Code of Conduct
+
+**.github/CODE_OF_CONDUCT.md**:
+```markdown
+# Code of Conduct
+
+## Our Pledge
+
+We as members, contributors, and leaders pledge to make participation in our
+community a harassment-free experience for everyone.
+
+## Our Standards
+
+Examples of behavior that contributes to a positive environment:
+
+* Using welcoming and inclusive language
+* Being respectful of differing viewpoints and experiences
+* Gracefully accepting constructive criticism
+* Focusing on what is best for the community
+* Showing empathy towards other community members
+
+Examples of unacceptable behavior:
+
+* The use of sexualized language or imagery and unwelcome sexual attention
+* Trolling, insulting/derogatory comments, and personal or political attacks
+* Public or private harassment
+* Publishing others' private information without explicit permission
+* Other conduct which could reasonably be considered inappropriate
+
+## Enforcement
+
+Project maintainers are responsible for clarifying the standards of acceptable
+behavior and are expected to take appropriate and fair corrective action in
+response to any instances of unacceptable behavior.
+
+## Attribution
+
+This Code of Conduct is adapted from the [Contributor Covenant](https://www.contributor-covenant.org), version 2.0.
+```
+
+#### Security Policy
+
+**.github/SECURITY.md**:
+```markdown
+# Security Policy
+
+## Supported Versions
+
+| Version | Supported          |
+| ------- | ------------------ |
+| 1.0.x   | :white_check_mark: |
+
+## Reporting a Vulnerability
+
+**Please do not report security vulnerabilities through public GitHub issues.**
+
+Instead, please report them via email to [your-email]. You should receive a response within 48 hours.
+
+Please include the following information:
+
+- Type of issue (e.g. buffer overflow, SQL injection, cross-site scripting, etc.)
+- Full paths of source file(s) related to the manifestation of the issue
+- The location of the affected source code (tag/branch/commit or direct URL)
+- Any special configuration required to reproduce the issue
+- Step-by-step instructions to reproduce the issue
+- Proof-of-concept or exploit code (if possible)
+- Impact of the issue, including how an attacker might exploit it
+
+## Preferred Languages
+
+We prefer all communications to be in English.
+```
+
+#### Dependabot Configuration
+
+**.github/dependabot.yml**:
+```yaml
+version: 2
+updates:
+  # Python dependencies
+  - package-ecosystem: "pip"
+    directory: "/ingestion"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 10
+    labels:
+      - "dependencies"
+      - "python"
+
+  - package-ecosystem: "pip"
+    directory: "/api"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 10
+    labels:
+      - "dependencies"
+      - "python"
+
+  # NPM dependencies
+  - package-ecosystem: "npm"
+    directory: "/dashboard"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 10
+    labels:
+      - "dependencies"
+      - "javascript"
+
+  # GitHub Actions
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "monthly"
+    labels:
+      - "dependencies"
+      - "github-actions"
+
+  # Terraform
+  - package-ecosystem: "terraform"
+    directory: "/infrastructure"
+    schedule:
+      interval: "weekly"
+    labels:
+      - "dependencies"
+      - "terraform"
+```
+
+### Editor Configuration
+
+**.editorconfig** - Consistent formatting across editors:
+
+```ini
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+
+[*.py]
+indent_style = space
+indent_size = 4
+max_line_length = 100
+
+[*.{js,jsx,ts,tsx,json,yml,yaml}]
+indent_style = space
+indent_size = 2
+
+[*.md]
+trim_trailing_whitespace = false
+max_line_length = off
+
+[Makefile]
+indent_style = tab
+
+[*.tf]
+indent_style = space
+indent_size = 2
+```
+
+### Contributing Guide
+
+**CONTRIBUTING.md**:
+
+```markdown
+# Contributing to ThreatStream Intelligence Pipeline
+
+Thank you for your interest in contributing! This is a portfolio project, but contributions are welcome.
+
+## Development Setup
+
+1. **Clone the repository**:
+   ```bash
+   git clone https://github.com/yourusername/IDPI.git
+   cd IDPI
+   ```
+
+2. **Set up Python environment**:
+   ```bash
+   cd ingestion
+   python -m venv venv
+   source venv/bin/activate  # On Windows: venv\Scripts\activate
+   pip install -r requirements.txt
+   pip install -r requirements-dev.txt
+   ```
+
+3. **Set up local services**:
+   ```bash
+   docker-compose up -d cosmos-emulator redis
+   ```
+
+4. **Configure environment**:
+   ```bash
+   cp .env.example .env
+   # Edit .env with your credentials
+   ```
+
+## Making Changes
+
+1. **Create a feature branch**:
+   ```bash
+   git checkout -b feature/your-feature-name
+   ```
+
+2. **Make your changes** following the coding standards below
+
+3. **Run tests**:
+   ```bash
+   # Python tests
+   cd ingestion
+   pytest tests/ --cov=. --cov-report=term-missing
+
+   # API tests
+   cd api
+   pytest tests/ --cov=. --cov-report=term-missing
+
+   # Dashboard tests (if applicable)
+   cd dashboard
+   npm test
+   ```
+
+4. **Lint your code**:
+   ```bash
+   # Python
+   flake8 .
+   black --check .
+   mypy .
+
+   # JavaScript/TypeScript
+   npm run lint
+   ```
+
+5. **Commit with clear messages**:
+   ```bash
+   git commit -m "feat: Add feature description"
+   # Use conventional commits: feat, fix, docs, style, refactor, test, chore
+   ```
+
+6. **Push and create PR**:
+   ```bash
+   git push origin feature/your-feature-name
+   # Open a PR on GitHub
+   ```
+
+## Coding Standards
+
+### Python
+- Follow PEP 8 style guide
+- Use type hints for all functions
+- Write docstrings for public functions
+- Maximum line length: 100 characters
+- Use Black for formatting
+- No unused imports or variables
+
+### TypeScript/JavaScript
+- Follow ESLint configuration
+- Use TypeScript for type safety
+- Functional components with hooks
+- Clear, descriptive variable names
+
+### Testing
+- Maintain >80% code coverage
+- Write unit tests for all business logic
+- Integration tests for API endpoints
+- Mock external services in tests
+
+### Git Commit Messages
+Use conventional commits format:
+- `feat: Add new feature`
+- `fix: Fix bug description`
+- `docs: Update documentation`
+- `style: Format code`
+- `refactor: Refactor component`
+- `test: Add tests`
+- `chore: Update dependencies`
+
+## Questions?
+
+Open an issue for discussion before starting major changes.
+```
+
+### README Enhancements
+
+Add badges to the top of README.md:
+
+```markdown
+# ThreatStream Intelligence Pipeline
+
+![Build Status](https://github.com/yourusername/IDPI/workflows/CI/badge.svg)
+![Test Coverage](https://img.shields.io/codecov/c/github/yourusername/IDPI)
+![License](https://img.shields.io/github/license/yourusername/IDPI)
+![Python Version](https://img.shields.io/badge/python-3.11+-blue.svg)
+![Node Version](https://img.shields.io/badge/node-18+-green.svg)
+![Azure](https://img.shields.io/badge/Azure-Functions%20%7C%20Cosmos%20DB%20%7C%20OpenAI-blue)
+```
+
+---
+
 ## Development Timeline & Claude Code Sessions
 
 ### Week 1: Data Ingestion & Processing (45-50 hours)
