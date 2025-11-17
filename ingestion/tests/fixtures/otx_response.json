@@ -1,0 +1,38 @@
+{
+  "count": 2,
+  "results": [
+    {
+      "id": "pulse123",
+      "name": "Malicious Campaign",
+      "description": "Test pulse",
+      "TLP": "white",
+      "tags": ["malware", "botnet"],
+      "indicators": [
+        {
+          "indicator": "1.2.3.4",
+          "type": "IPv4",
+          "description": "Command and Control Server"
+        },
+        {
+          "indicator": "malicious.com",
+          "type": "domain",
+          "description": "Malware distribution"
+        }
+      ]
+    },
+    {
+      "id": "pulse456",
+      "name": "APT Campaign",
+      "description": "Advanced threat",
+      "TLP": "green",
+      "tags": ["apt"],
+      "indicators": [
+        {
+          "indicator": "abc123def456",
+          "type": "FileHash-SHA256",
+          "description": "Malware sample"
+        }
+      ]
+    }
+  ]
+}

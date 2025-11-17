@@ -3,7 +3,7 @@ Pydantic model for raw threat indicators
 
 This model validates and stores indicators as they are ingested from sources
 """
-from pydantic import BaseModel, Field, ConfigDict
+from pydantic import BaseModel, Field, ConfigDict, field_validator
 from typing import List, Optional, Dict, Any
 from enum import Enum
 
@@ -64,6 +64,22 @@ class RawIndicator(BaseModel):
         default_factory=dict,
         description="Original metadata from source API"
     )
+
+    @field_validator('indicator_value')
+    @classmethod
+    def validate_indicator_value_not_empty(cls, v):
+        """Reject empty indicator values"""
+        if not v or not v.strip():
+            raise ValueError('indicator_value cannot be empty')
+        return v
+
+    @field_validator('source')
+    @classmethod
+    def validate_source_not_empty(cls, v):
+        """Reject empty source values"""
+        if not v or not v.strip():
+            raise ValueError('source cannot be empty')
+        return v
 
     model_config = ConfigDict(
         use_enum_values=True,  # Serialize enum as string value

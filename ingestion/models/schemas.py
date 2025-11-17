@@ -79,3 +79,26 @@ class URLhausEntrySchema(BaseModel):
     tags: List[str] = Field(default_factory=list, description="Associated tags")
 
     model_config = ConfigDict(extra='allow')
+
+
+# API Response Wrapper Schemas
+
+class OTXPulseResponse(BaseModel):
+    """OTX API response wrapper schema"""
+    results: List[OTXPulseSchema] = Field(default_factory=list, description="List of pulses")
+
+    model_config = ConfigDict(extra='allow')
+
+
+class AbuseIPDBResponse(BaseModel):
+    """AbuseIPDB API response wrapper schema"""
+    data: List[AbuseIPDBDataSchema] = Field(default_factory=list, description="List of IP data")
+
+    model_config = ConfigDict(extra='allow')
+
+
+class URLhausResponse(BaseModel):
+    """URLhaus API response wrapper schema"""
+    urls: List[URLhausEntrySchema] = Field(default_factory=list, description="List of malicious URLs")
+
+    model_config = ConfigDict(extra='allow')

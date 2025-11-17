@@ -1,0 +1,17 @@
+{
+  "query_status": "ok",
+  "urls": [
+    {
+      "url": "http://malicious.com/payload.exe",
+      "url_status": "online",
+      "threat": "malware_download",
+      "tags": ["exe", "malware"]
+    },
+    {
+      "url": "http://phishing-site.com/login",
+      "url_status": "offline",
+      "threat": "phishing",
+      "tags": ["phishing"]
+    }
+  ]
+}
