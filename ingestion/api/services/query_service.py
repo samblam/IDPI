@@ -168,6 +168,28 @@ class QueryService:
             self.logger.error(f"Error querying relationships: {e}", exc_info=True)
             return {"items": []}
 
+    def _extract_count_from_result(self, result: list) -> int:
+        """
+        Extract count value from Cosmos DB query result
+
+        Handles both dictionary format ({"count": N}) and scalar format (N)
+
+        Args:
+            result: Query result list
+
+        Returns:
+            Count value or 0 if result is empty
+        """
+        if not result:
+            return 0
+
+        first_item = result[0]
+
+        if isinstance(first_item, dict):
+            return first_item.get("count", 0)
+        else:
+            return first_item
+
     async def get_statistics(self) -> Dict:
         """
         Get statistics about indicators
@@ -189,7 +211,7 @@ class QueryService:
                 total_query,
                 []
             )
-            total = total_result[0]["count"] if total_result and isinstance(total_result[0], dict) else total_result[0] if total_result else 0
+            total = self._extract_count_from_result(total_result)
 
             # Get counts by type
             by_type = {}
@@ -200,7 +222,7 @@ class QueryService:
                     count_query,
                     [{"name": "@type", "value": ioc_type}]
                 )
-                count = count_result[0]["count"] if count_result and isinstance(count_result[0], dict) else count_result[0] if count_result else 0
+                count = self._extract_count_from_result(count_result)
                 by_type[ioc_type] = count
 
             stats = {

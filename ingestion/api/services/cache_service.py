@@ -54,6 +54,9 @@ class CacheService:
         self.failure_count = 0
         self.last_failure_time = 0
 
+        # Initialize logger
+        self.logger = logging.getLogger(self.__class__.__name__)
+
         # Initialize Redis client
         redis_host = os.getenv("REDIS_HOST", "localhost")
         redis_port = int(os.getenv("REDIS_PORT", "6379"))
@@ -69,11 +72,8 @@ class CacheService:
                 socket_timeout=2
             )
         except Exception as e:
-            self.logger = logging.getLogger(self.__class__.__name__)
             self.logger.error(f"Failed to initialize Redis client: {e}")
             self.circuit_state = CircuitState.OPEN
-
-        self.logger = logging.getLogger(self.__class__.__name__)
 
     def _get_key(self, key: str) -> str:
         """Apply prefix to cache key"""

@@ -60,12 +60,22 @@ async def indicator_stream_generator(
             # Send new indicators
             for indicator in result["items"]:
                 # Only send indicators updated since last check
-                updated_at = indicator.get("updated_at", "")
-                if updated_at >= last_check.isoformat():
-                    yield {
-                        "event": "indicator",
-                        "data": json.dumps(indicator)
-                    }
+                updated_at_str = indicator.get("updated_at", "")
+                if updated_at_str:
+                    try:
+                        # Parse timestamp and compare as datetime objects
+                        updated_at = datetime.fromisoformat(updated_at_str.replace('Z', '+00:00'))
+                        if updated_at >= last_check:
+                            yield {
+                                "event": "indicator",
+                                "data": json.dumps(indicator)
+                            }
+                    except (ValueError, AttributeError):
+                        # If parsing fails, send anyway to avoid missing data
+                        yield {
+                            "event": "indicator",
+                            "data": json.dumps(indicator)
+                        }
 
             last_check = now
 

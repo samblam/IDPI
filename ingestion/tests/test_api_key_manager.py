@@ -4,8 +4,8 @@ Tests for API Key Manager
 Following TDD - Tests written FIRST
 """
 import pytest
-from unittest.mock import Mock, AsyncMock, patch
-from datetime import datetime, timezone, timedelta
+from unittest.mock import Mock, patch
+from datetime import datetime, timezone
 
 from api.services.api_key_manager import APIKeyManager, APIKeyTier
 

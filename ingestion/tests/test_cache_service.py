@@ -4,7 +4,7 @@ Tests for Cache Service with Circuit Breaker
 Following TDD - Tests written FIRST
 """
 import pytest
-from unittest.mock import Mock, AsyncMock, patch, MagicMock
+from unittest.mock import Mock, patch
 import json
 from datetime import datetime
 

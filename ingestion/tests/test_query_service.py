@@ -5,7 +5,6 @@ Following TDD - Tests written FIRST
 """
 import pytest
 from unittest.mock import Mock, AsyncMock, patch
-from datetime import datetime, timezone
 
 from api.services.query_service import QueryService
 
