@@ -3076,3 +3076,400 @@ This aligns with realistic portfolio development timelines, accounting for learn
 6. Write technical blog post about architecture
 7. Update resume/portfolio with live demo link
 8. Begin applications to target companies
+
+---
+
+## Module 4 Implementation Enhancements
+
+### Enhanced API Key Management
+
+**Issue**: Static API keys loaded from environment variable are inflexible and lack rotation support.
+
+**Solution**: Implement API key metadata management with Cosmos DB.
+
+```python
+# api/services/api_key_manager.py
+from typing import Dict, Optional
+from datetime import datetime, timezone, timedelta
+import hashlib
+import secrets
+
+class APIKeyManager:
+    """Manage API keys with metadata, expiration, and rate limits"""
+    
+    def __init__(self, cosmos_client):
+        self.cosmos_client = cosmos_client
+        self._cache = {}  # In-memory cache for performance
+        self._cache_ttl = 300  # 5 minutes
+    
+    def generate_api_key(self, tier: str = "standard", expires_days: int = 90) -> str:
+        """Generate new API key"""
+        key = f"ts_{secrets.token_urlsafe(32)}"
+        hashed = hashlib.sha256(key.encode()).hexdigest()
+        
+        key_doc = {
+            "id": hashed,
+            "key_hash": hashed,
+            "tier": tier,  # free, standard, premium
+            "rate_limit": self._get_rate_limit_for_tier(tier),
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "expires_at": (datetime.now(timezone.utc) + timedelta(days=expires_days)).isoformat(),
+            "is_active": True,
+            "usage_count": 0
+        }
+        
+        self.cosmos_client.upsert_item("api_keys", key_doc)
+        return key
+    
+    async def validate_key(self, api_key: str) -> Dict:
+        """Validate API key and return metadata"""
+        hashed = hashlib.sha256(api_key.encode()).hexdigest()
+        
+        # Check cache first
+        cache_key = f"apikey:{hashed}"
+        if cache_key in self._cache:
+            cached_time, cached_data = self._cache[cache_key]
+            if datetime.now(timezone.utc).timestamp() - cached_time < self._cache_ttl:
+                return cached_data
+        
+        # Query Cosmos with parameterized query
+        query = """
+            SELECT * FROM c 
+            WHERE c.key_hash = @hash 
+            AND c.is_active = true 
+            AND c.expires_at > @now
+        """
+        params = [
+            {"name": "@hash", "value": hashed},
+            {"name": "@now", "value": datetime.now(timezone.utc).isoformat()}
+        ]
+        
+        results = self.cosmos_client.query_items("api_keys", query, params)
+        
+        if not results:
+            raise HTTPException(status_code=401, detail="Invalid or expired API key")
+        
+        key_data = results[0]
+        
+        # Update cache
+        self._cache[cache_key] = (datetime.now(timezone.utc).timestamp(), key_data)
+        
+        # Track usage
+        self._increment_usage(hashed)
+        
+        return key_data
+    
+    def _get_rate_limit_for_tier(self, tier: str) -> int:
+        """Get rate limit based on tier"""
+        limits = {
+            "free": 60,        # 60/min
+            "standard": 300,   # 300/min
+            "premium": 1000    # 1000/min
+        }
+        return limits.get(tier, 100)
+    
+    def _increment_usage(self, key_hash: str):
+        """Increment usage counter asynchronously"""
+        # Non-blocking increment
+        pass
+```
+
+### Enhanced Rate Limiting
+
+**Issue**: Rate limiting by IP address doesn't provide per-key control.
+
+**Solution**: Implement per-API-key rate limiting with tier support.
+
+```python
+# api/middleware/rate_limit.py
+from slowapi import Limiter
+from slowapi.util import get_remote_address
+from fastapi import Request, HTTPException
+
+def get_api_key_identifier(request: Request) -> str:
+    """Extract API key for rate limiting"""
+    api_key = request.headers.get("X-API-Key", "anonymous")
+    # Hash for privacy
+    if api_key != "anonymous":
+        return hashlib.sha256(api_key.encode()).hexdigest()[:16]
+    return get_remote_address(request)
+
+limiter = Limiter(key_func=get_api_key_identifier)
+
+async def check_rate_limit(request: Request, key_data: Dict):
+    """Check if request exceeds rate limit for API key tier"""
+    rate_limit = key_data.get("rate_limit", 100)
+    
+    # slowapi handles the actual rate limiting
+    # Just set headers for client visibility
+    request.state.rate_limit = rate_limit
+    request.state.rate_limit_remaining = rate_limit - request.state.view_rate_limit.get_current_usage()
+    
+    # Add rate limit headers to response
+    return {
+        "X-RateLimit-Limit": str(rate_limit),
+        "X-RateLimit-Remaining": str(request.state.rate_limit_remaining),
+        "X-RateLimit-Reset": str(int(time.time()) + 60)
+    }
+```
+
+### Query Optimization with Pagination
+
+**Issue**: No pagination support, SELECT * returns all fields.
+
+**Solution**: Add cursor-based pagination and selective projection.
+
+```python
+# api/services/query_service.py
+from typing import List, Dict, Optional, Tuple
+
+class QueryService:
+    """Optimized Cosmos DB query service"""
+    
+    def __init__(self, cosmos_client):
+        self.cosmos_client = cosmos_client
+    
+    async def query_indicators(
+        self,
+        filters: Dict,
+        max_results: int = 100,
+        continuation_token: Optional[str] = None
+    ) -> Tuple[List[Dict], Optional[str]]:
+        """
+        Query indicators with pagination
+        
+        Returns:
+            Tuple of (results, next_continuation_token)
+        """
+        # Build parameterized query with selective projection
+        query = """
+            SELECT 
+                c.id, 
+                c.indicator_value, 
+                c.indicator_type,
+                c.confidence_score,
+                c.enrichment.classification,
+                c.enrichment.severity,
+                c.enrichment.mitre_ttps,
+                c.last_seen
+            FROM c
+            WHERE {where_clause}
+            ORDER BY c.confidence_score DESC
+        """
+        
+        conditions = []
+        parameters = []
+        
+        if filters.get("min_confidence"):
+            conditions.append("c.confidence_score >= @min_confidence")
+            parameters.append({"name": "@min_confidence", "value": filters["min_confidence"]})
+        
+        if filters.get("indicator_type"):
+            conditions.append("c.indicator_type = @indicator_type")
+            parameters.append({"name": "@indicator_type", "value": filters["indicator_type"]})
+        
+        if filters.get("severity"):
+            conditions.append("c.enrichment.severity = @severity")
+            parameters.append({"name": "@severity", "value": filters["severity"]})
+        
+        where_clause = " AND ".join(conditions) if conditions else "1=1"
+        query = query.format(where_clause=where_clause)
+        
+        # Execute with continuation token support
+        results, next_token = self.cosmos_client.query_items_paginated(
+            container="enriched_indicators",
+            query=query,
+            parameters=parameters,
+            max_items=max_results,
+            continuation_token=continuation_token
+        )
+        
+        return results, next_token
+```
+
+### Resilient Redis Caching
+
+**Issue**: Silent failures when Redis is down.
+
+**Solution**: Add circuit breaker and graceful degradation.
+
+```python
+# api/services/cache_service.py
+import asyncio
+from typing import Optional
+from datetime import datetime, timezone
+
+class CacheService:
+    """Redis caching with circuit breaker"""
+    
+    def __init__(self, redis_client):
+        self.redis = redis_client
+        self.circuit_open = False
+        self.failure_count = 0
+        self.last_failure = None
+        self.failure_threshold = 5
+        self.circuit_timeout = 60  # seconds
+    
+    async def get(self, key: str) -> Optional[str]:
+        """Get from cache with circuit breaker"""
+        if self._is_circuit_open():
+            return None
+        
+        try:
+            result = await asyncio.wait_for(
+                self.redis.get(key),
+                timeout=0.5  # Don't wait too long
+            )
+            self._reset_circuit()
+            return result
+            
+        except (asyncio.TimeoutError, Exception) as e:
+            self._record_failure()
+            logger.warning(f"Cache read failed: {e}")
+            return None
+    
+    async def set(self, key: str, value: str, ttl: int) -> bool:
+        """Set in cache with circuit breaker"""
+        if self._is_circuit_open():
+            return False
+        
+        try:
+            await asyncio.wait_for(
+                self.redis.setex(key, ttl, value),
+                timeout=0.5
+            )
+            self._reset_circuit()
+            return True
+            
+        except (asyncio.TimeoutError, Exception) as e:
+            self._record_failure()
+            logger.warning(f"Cache write failed: {e}")
+            return False
+    
+    def _is_circuit_open(self) -> bool:
+        """Check if circuit breaker is open"""
+        if not self.circuit_open:
+            return False
+        
+        # Check if timeout has elapsed
+        if self.last_failure:
+            elapsed = (datetime.now(timezone.utc) - self.last_failure).total_seconds()
+            if elapsed > self.circuit_timeout:
+                self.circuit_open = False
+                self.failure_count = 0
+                return False
+        
+        return True
+    
+    def _record_failure(self):
+        """Record cache failure"""
+        self.failure_count += 1
+        self.last_failure = datetime.now(timezone.utc)
+        
+        if self.failure_count >= self.failure_threshold:
+            self.circuit_open = True
+            logger.error(f"Circuit breaker opened after {self.failure_count} failures")
+    
+    def _reset_circuit(self):
+        """Reset circuit breaker on success"""
+        if self.failure_count > 0:
+            self.failure_count = 0
+            self.circuit_open = False
+```
+
+### Enhanced SSE with Heartbeats
+
+**Issue**: Fixed polling interval, no keep-alive for idle connections.
+
+**Solution**: Add heartbeat events and configurable intervals.
+
+```python
+# api/routers/streaming.py
+import time
+from typing import AsyncGenerator
+
+@app.get("/api/v1/live-feed")
+async def live_feed_sse(
+    request: Request,
+    interval: int = Query(10, ge=5, le=60),  # Configurable polling
+    api_key: str = Depends(verify_api_key)
+):
+    """
+    SSE endpoint with heartbeat support
+    
+    Args:
+        interval: Polling interval in seconds (5-60)
+    """
+    
+    async def event_generator() -> AsyncGenerator[str, None]:
+        last_check = datetime.now(timezone.utc)
+        heartbeat_interval = 15
+        last_heartbeat = time.time()
+        
+        while True:
+            # Check for client disconnect
+            if await request.is_disconnected():
+                logger.info("Client disconnected from SSE feed")
+                break
+            
+            # Send heartbeat to keep connection alive
+            if time.time() - last_heartbeat > heartbeat_interval:
+                yield ": heartbeat\n\n"
+                last_heartbeat = time.time()
+            
+            # Query for new high-severity indicators
+            since = last_check.isoformat().replace('+00:00', 'Z')
+            query = """
+                SELECT 
+                    c.indicator_value,
+                    c.indicator_type,
+                    c.confidence_score,
+                    c.enrichment.classification,
+                    c.enrichment.severity,
+                    c.last_seen
+                FROM c
+                WHERE c.last_seen > @since
+                AND c.enrichment.severity IN ('Critical', 'High')
+                ORDER BY c.last_seen DESC
+            """
+            parameters = [{"name": "@since", "value": since}]
+            
+            try:
+                indicators = cosmos_client.query_items(
+                    "enriched_indicators", 
+                    query, 
+                    parameters
+                )
+                
+                if indicators:
+                    data = json.dumps({
+                        "timestamp": datetime.now(timezone.utc).isoformat(),
+                        "count": len(indicators),
+                        "indicators": indicators
+                    })
+                    
+                    # SSE format: "data: {json}\n\n"
+                    yield f"data: {data}\n\n"
+                    last_heartbeat = time.time()  # Reset on data send
+                
+                last_check = datetime.now(timezone.utc)
+                
+            except Exception as e:
+                logger.error(f"Error fetching indicators: {e}")
+                # Send error event
+                yield f"event: error\ndata: {json.dumps({'error': str(e)})}\n\n"
+            
+            # Use client-configurable interval
+            await asyncio.sleep(interval)
+    
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no"
+        }
+    )
+```
+
