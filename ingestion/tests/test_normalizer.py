@@ -5,7 +5,6 @@ Following TDD - Tests written FIRST
 """
 import pytest
 from datetime import datetime
-from unittest.mock import Mock, patch
 
 from normalization.normalizer import IndicatorNormalizer
 

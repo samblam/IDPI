@@ -4,9 +4,8 @@ Indicator Normalizer
 Normalizes indicators from different threat intelligence sources to a common schema
 """
 from typing import Dict
-from datetime import datetime
+from datetime import datetime, timezone
 import re
-import hashlib
 
 
 class IndicatorNormalizer:
@@ -44,6 +43,16 @@ class IndicatorNormalizer:
         "offline": 50,
         "unknown": 40
     }
+
+    @staticmethod
+    def _get_current_timestamp() -> str:
+        """
+        Get current UTC timestamp in ISO format with Z suffix
+
+        Returns:
+            ISO formatted timestamp string with Z suffix
+        """
+        return datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z')
 
     def detect_type(self, value: str) -> str:
         """
@@ -116,7 +125,7 @@ class IndicatorNormalizer:
                 "tags": metadata.get("tags", []),
                 "description": metadata.get("description", "")
             }],
-            "normalized_at": datetime.utcnow().isoformat() + "Z"
+            "normalized_at": self._get_current_timestamp()
         }
 
         return normalized
@@ -149,7 +158,7 @@ class IndicatorNormalizer:
                 "total_reports": metadata.get("total_reports", 0),
                 "last_reported_at": metadata.get("last_reported_at")
             }],
-            "normalized_at": datetime.utcnow().isoformat() + "Z"
+            "normalized_at": self._get_current_timestamp()
         }
 
         return normalized
@@ -183,7 +192,7 @@ class IndicatorNormalizer:
                 "threat": metadata.get("threat"),
                 "tags": metadata.get("tags", [])
             }],
-            "normalized_at": datetime.utcnow().isoformat() + "Z"
+            "normalized_at": self._get_current_timestamp()
         }
 
         return normalized

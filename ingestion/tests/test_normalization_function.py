@@ -5,7 +5,6 @@ Following TDD - Tests written FIRST
 """
 import pytest
 from unittest.mock import Mock, patch, MagicMock
-from datetime import datetime
 
 # Note: We'll mock azure.functions since it may not be installed in test env
 from functions.normalization_function import process_normalization

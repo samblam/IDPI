@@ -5,6 +5,7 @@ Detects relationships between threat intelligence indicators
 """
 from typing import Dict, List, Optional
 from urllib.parse import urlparse
+from ipaddress import ip_address, AddressValueError
 import re
 
 
@@ -31,13 +32,14 @@ def extract_domain_from_url(url: str) -> Optional[str]:
         if not hostname:
             return None
 
-        # Check if hostname is an IP address
-        # IPv4 pattern
-        if re.match(r'^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$', hostname):
+        # Check if hostname is an IP address using ipaddress module
+        try:
+            ip_address(hostname)
+            # It's a valid IP address, not a domain
             return None
-
-        # It's a domain
-        return hostname
+        except (AddressValueError, ValueError):
+            # Not a valid IP, so it's a domain
+            return hostname
 
     except Exception:
         return None
@@ -66,12 +68,14 @@ def extract_ip_from_url(url: str) -> Optional[str]:
         if not hostname:
             return None
 
-        # Check if hostname is an IPv4 address
-        if re.match(r'^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$', hostname):
+        # Check if hostname is a valid IP address using ipaddress module
+        try:
+            ip_address(hostname)
+            # It's a valid IP address
             return hostname
-
-        # Not an IP
-        return None
+        except (AddressValueError, ValueError):
+            # Not a valid IP, it's a domain
+            return None
 
     except Exception:
         return None

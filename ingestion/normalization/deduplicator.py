@@ -4,7 +4,8 @@ Deduplication Engine
 Merges duplicate indicators from multiple sources and calculates composite confidence scores
 """
 from typing import List, Dict
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
+from urllib.parse import quote
 import logging
 
 
@@ -55,8 +56,10 @@ def merge_duplicates(duplicates: List[Dict]) -> Dict:
     # Start with first indicator as base
     merged = duplicates[0].copy()
 
-    # Generate deduplicated ID
-    merged["id"] = f"dedup_{merged['indicator_value']}"
+    # Generate deduplicated ID with sanitized indicator value
+    # URL-encode the indicator value to handle special characters
+    sanitized_value = quote(merged['indicator_value'], safe='')
+    merged["id"] = f"dedup_{sanitized_value}"
 
     # Combine all sources
     all_sources = []
@@ -163,9 +166,9 @@ class DeduplicationEngine:
 
         cosmos_client = CosmosClient()
 
-        # Calculate cutoff time
-        cutoff_time = datetime.utcnow() - timedelta(hours=hours_lookback)
-        cutoff_iso = cutoff_time.isoformat() + "Z"
+        # Calculate cutoff time using timezone-aware datetime
+        cutoff_time = datetime.now(timezone.utc) - timedelta(hours=hours_lookback)
+        cutoff_iso = cutoff_time.isoformat().replace('+00:00', 'Z')
 
         # Query indicators from time window
         query = """
@@ -178,7 +181,23 @@ class DeduplicationEngine:
 
         self.logger.info(f"Querying indicators from last {hours_lookback} hours")
 
-        indicators = cosmos_client.query_items(container, query, parameters)
+        # Query indicators with error handling and type checking
+        try:
+            if not hasattr(cosmos_client, "query_items"):
+                self.logger.error("CosmosClient does not have a 'query_items' method")
+                return []
+
+            result = cosmos_client.query_items(container, query, parameters)
+
+            # Convert to list if not already (handles iterators)
+            if not isinstance(result, list):
+                indicators = list(result)
+            else:
+                indicators = result
+
+        except Exception as e:
+            self.logger.error(f"Error querying items from Cosmos DB: {e}", exc_info=True)
+            return []
 
         self.logger.info(f"Retrieved {len(indicators)} indicators from Cosmos DB")
 
