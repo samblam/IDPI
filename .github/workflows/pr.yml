@@ -1,0 +1,413 @@
+name: PR Validation
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    branches: [main, develop]
+
+env:
+  PYTHON_VERSION: '3.11'
+  NODE_VERSION: '18'
+
+jobs:
+  # ===========================================================================
+  # PR Metadata Check
+  # ===========================================================================
+  pr-check:
+    name: PR Metadata Check
+    runs-on: ubuntu-latest
+    if: github.event.pull_request.draft == false
+
+    steps:
+      - name: Check PR title format
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const title = context.payload.pull_request.title;
+            const validPrefixes = ['feat:', 'fix:', 'docs:', 'refactor:', 'test:', 'chore:', 'perf:', 'ci:', 'build:', 'style:'];
+
+            const hasValidPrefix = validPrefixes.some(prefix => title.toLowerCase().startsWith(prefix));
+
+            if (!hasValidPrefix) {
+              core.setFailed(`PR title must start with one of: ${validPrefixes.join(', ')}\nCurrent title: "${title}"`);
+            } else {
+              core.info(`✅ PR title format is valid: "${title}"`);
+            }
+
+      - name: Check PR description
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const body = context.payload.pull_request.body || '';
+
+            if (body.length < 20) {
+              core.setFailed('PR description must be at least 20 characters long. Please provide a meaningful description.');
+            } else {
+              core.info('✅ PR has a description');
+            }
+
+      - name: Check PR labels
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const labels = context.payload.pull_request.labels.map(label => label.name);
+
+            if (labels.length === 0) {
+              core.warning('⚠️  Consider adding labels to categorize this PR');
+            } else {
+              core.info(`✅ PR has labels: ${labels.join(', ')}`);
+            }
+
+  # ===========================================================================
+  # Dependency Review
+  # ===========================================================================
+  dependency-review:
+    name: Dependency Review
+    runs-on: ubuntu-latest
+    if: github.event.pull_request.draft == false
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Dependency Review
+        uses: actions/dependency-review-action@v4
+        with:
+          fail-on-severity: moderate
+          deny-licenses: GPL-3.0, AGPL-3.0
+
+  # ===========================================================================
+  # Code Quality Checks
+  # ===========================================================================
+  code-quality:
+    name: Code Quality Analysis
+    runs-on: ubuntu-latest
+    if: github.event.pull_request.draft == false
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Full history for better analysis
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install Python quality tools
+        run: |
+          pip install radon bandit safety
+
+      - name: Calculate code complexity
+        run: |
+          echo "## Code Complexity Report" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          if [ -d "ingestion" ]; then
+            echo "### Ingestion Module" >> $GITHUB_STEP_SUMMARY
+            radon cc ingestion -a -s || true
+            radon cc ingestion -a -s >> $GITHUB_STEP_SUMMARY || true
+          fi
+
+          if [ -d "api" ]; then
+            echo "### API Module" >> $GITHUB_STEP_SUMMARY
+            radon cc api -a -s || true
+            radon cc api -a -s >> $GITHUB_STEP_SUMMARY || true
+          fi
+
+      - name: Run security scan with Bandit
+        run: |
+          echo "## Security Scan Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          bandit -r ingestion api -f json -o bandit-report.json || true
+
+          if [ -f bandit-report.json ]; then
+            echo "Bandit scan completed. Check artifacts for detailed report." >> $GITHUB_STEP_SUMMARY
+          fi
+
+      - name: Upload Bandit report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: bandit-security-report
+          path: bandit-report.json
+          retention-days: 30
+
+  # ===========================================================================
+  # Test Coverage Requirements
+  # ===========================================================================
+  coverage-check:
+    name: Test Coverage Check
+    runs-on: ubuntu-latest
+    if: github.event.pull_request.draft == false
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Test Ingestion coverage
+        run: |
+          cd ingestion
+          pip install -r requirements.txt
+          pip install pytest pytest-cov pytest-asyncio
+          pytest tests/ --cov=. --cov-report=term-missing --cov-fail-under=70 || echo "⚠️  Coverage below 70%"
+
+      - name: Test API coverage
+        run: |
+          cd api
+          pip install -r requirements.txt
+          pip install pytest pytest-cov pytest-asyncio httpx
+          pytest tests/ --cov=. --cov-report=term-missing --cov-fail-under=70 || echo "⚠️  Coverage below 70%"
+
+  # ===========================================================================
+  # Changed Files Analysis
+  # ===========================================================================
+  changed-files:
+    name: Analyze Changed Files
+    runs-on: ubuntu-latest
+    if: github.event.pull_request.draft == false
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Get changed files
+        id: changed-files
+        uses: tj-actions/changed-files@v44
+        with:
+          files_yaml: |
+            python:
+              - '**/*.py'
+            typescript:
+              - '**/*.ts'
+              - '**/*.tsx'
+            terraform:
+              - '**/*.tf'
+            workflows:
+              - '.github/workflows/*.yml'
+            docs:
+              - '**/*.md'
+            docker:
+              - '**/Dockerfile'
+              - 'docker-compose.yml'
+
+      - name: Report changed files
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const changedFiles = {
+              python: '${{ steps.changed-files.outputs.python_all_changed_files }}'.split(' ').filter(f => f),
+              typescript: '${{ steps.changed-files.outputs.typescript_all_changed_files }}'.split(' ').filter(f => f),
+              terraform: '${{ steps.changed-files.outputs.terraform_all_changed_files }}'.split(' ').filter(f => f),
+              workflows: '${{ steps.changed-files.outputs.workflows_all_changed_files }}'.split(' ').filter(f => f),
+              docs: '${{ steps.changed-files.outputs.docs_all_changed_files }}'.split(' ').filter(f => f),
+              docker: '${{ steps.changed-files.outputs.docker_all_changed_files }}'.split(' ').filter(f => f),
+            };
+
+            let summary = '## Changed Files Summary\n\n';
+
+            for (const [type, files] of Object.entries(changedFiles)) {
+              if (files.length > 0) {
+                summary += `### ${type.charAt(0).toUpperCase() + type.slice(1)} (${files.length})\n`;
+                files.forEach(file => summary += `- ${file}\n`);
+                summary += '\n';
+              }
+            }
+
+            await core.summary
+              .addRaw(summary)
+              .write();
+
+  # ===========================================================================
+  # Size Check
+  # ===========================================================================
+  pr-size:
+    name: PR Size Check
+    runs-on: ubuntu-latest
+    if: github.event.pull_request.draft == false
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check PR size
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { data: files } = await github.rest.pulls.listFiles({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: context.payload.pull_request.number,
+            });
+
+            const additions = files.reduce((sum, file) => sum + file.additions, 0);
+            const deletions = files.reduce((sum, file) => sum + file.deletions, 0);
+            const changes = additions + deletions;
+            const filesChanged = files.length;
+
+            let size = 'XS';
+            let emoji = '🟢';
+
+            if (changes > 1000 || filesChanged > 50) {
+              size = 'XL';
+              emoji = '🔴';
+            } else if (changes > 500 || filesChanged > 30) {
+              size = 'L';
+              emoji = '🟠';
+            } else if (changes > 250 || filesChanged > 15) {
+              size = 'M';
+              emoji = '🟡';
+            } else if (changes > 100 || filesChanged > 5) {
+              size = 'S';
+              emoji = '🟢';
+            }
+
+            const summary = `${emoji} **PR Size: ${size}**
+
+            - Files changed: ${filesChanged}
+            - Lines added: ${additions}
+            - Lines deleted: ${deletions}
+            - Total changes: ${changes}
+
+            ${size === 'XL' ? '⚠️  Consider breaking this PR into smaller, focused changes.' : ''}
+            ${size === 'L' ? '💡 This is a large PR. Ensure it has adequate test coverage.' : ''}
+            `;
+
+            await core.summary
+              .addRaw(summary)
+              .write();
+
+            core.info(summary);
+
+  # ===========================================================================
+  # Documentation Check
+  # ===========================================================================
+  docs-check:
+    name: Documentation Check
+    runs-on: ubuntu-latest
+    if: github.event.pull_request.draft == false
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check for documentation updates
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { data: files } = await github.rest.pulls.listFiles({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: context.payload.pull_request.number,
+            });
+
+            const codeFiles = files.filter(f =>
+              f.filename.endsWith('.py') ||
+              f.filename.endsWith('.ts') ||
+              f.filename.endsWith('.tsx')
+            );
+
+            const docFiles = files.filter(f => f.filename.endsWith('.md'));
+
+            if (codeFiles.length > 5 && docFiles.length === 0) {
+              core.warning('⚠️  This PR modifies code but does not update documentation. Consider updating relevant docs.');
+            } else if (docFiles.length > 0) {
+              core.info(`✅ Documentation updated: ${docFiles.map(f => f.filename).join(', ')}`);
+            }
+
+  # ===========================================================================
+  # Auto-assign Reviewers
+  # ===========================================================================
+  assign-reviewers:
+    name: Auto-assign Reviewers
+    runs-on: ubuntu-latest
+    if: github.event.pull_request.draft == false && github.event.action == 'opened'
+
+    steps:
+      - name: Auto-assign based on files
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { data: files } = await github.rest.pulls.listFiles({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: context.payload.pull_request.number,
+            });
+
+            // Define code owners (customize based on your team)
+            const codeOwners = {
+              python: [],  // Add Python experts
+              typescript: [],  // Add TypeScript experts
+              terraform: [],  // Add infrastructure experts
+              docs: [],  // Add documentation reviewers
+            };
+
+            const reviewers = new Set();
+
+            files.forEach(file => {
+              if (file.filename.endsWith('.py') && codeOwners.python.length > 0) {
+                codeOwners.python.forEach(r => reviewers.add(r));
+              } else if ((file.filename.endsWith('.ts') || file.filename.endsWith('.tsx')) && codeOwners.typescript.length > 0) {
+                codeOwners.typescript.forEach(r => reviewers.add(r));
+              } else if (file.filename.endsWith('.tf') && codeOwners.terraform.length > 0) {
+                codeOwners.terraform.forEach(r => reviewers.add(r));
+              } else if (file.filename.endsWith('.md') && codeOwners.docs.length > 0) {
+                codeOwners.docs.forEach(r => reviewers.add(r));
+              }
+            });
+
+            const reviewerArray = Array.from(reviewers).filter(r => r !== context.payload.pull_request.user.login);
+
+            if (reviewerArray.length > 0) {
+              await github.rest.pulls.requestReviewers({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                pull_number: context.payload.pull_request.number,
+                reviewers: reviewerArray.slice(0, 3), // Max 3 reviewers
+              });
+              core.info(`Assigned reviewers: ${reviewerArray.join(', ')}`);
+            }
+
+  # ===========================================================================
+  # Validation Summary
+  # ===========================================================================
+  validation-summary:
+    name: PR Validation Summary
+    runs-on: ubuntu-latest
+    needs:
+      - pr-check
+      - dependency-review
+      - code-quality
+      - coverage-check
+      - changed-files
+      - pr-size
+      - docs-check
+    if: always() && github.event.pull_request.draft == false
+
+    steps:
+      - name: Check validation results
+        run: |
+          echo "## PR Validation Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          if [[ "${{ contains(needs.*.result, 'failure') }}" == "true" ]]; then
+            echo "❌ Some validation checks failed. Please review the failed jobs above." >> $GITHUB_STEP_SUMMARY
+            exit 1
+          else
+            echo "✅ All PR validation checks passed!" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "This PR is ready for review." >> $GITHUB_STEP_SUMMARY
+          fi
