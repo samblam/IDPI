@@ -209,20 +209,25 @@ jobs:
             exit 1
           fi
 
-          # Test stats endpoint (requires auth)
-          if [ -n "${{ secrets.VITE_API_KEY }}" ]; then
-            response=$(curl -s -o /dev/null -w "%{http_code}" \
-              -H "X-API-Key: ${{ secrets.VITE_API_KEY }}" \
-              "https://$API_FQDN/stats")
-            if [ $response -eq 200 ]; then
-              echo "✅ API stats endpoint passed"
-            else
-              echo "⚠️  API stats endpoint failed (HTTP $response)"
-            fi
+      - name: Test API stats endpoint
+        if: ${{ secrets.VITE_API_KEY != '' }}
+        run: |
+          API_FQDN=$(az containerapp show \
+            --name ${{ secrets.AZURE_CONTAINERAPP_API_NAME }} \
+            --resource-group ${{ secrets.AZURE_RESOURCE_GROUP }} \
+            --query properties.configuration.ingress.fqdn -o tsv)
+
+          response=$(curl -s -o /dev/null -w "%{http_code}" \
+            -H "X-API-Key: ${{ secrets.VITE_API_KEY }}" \
+            "https://$API_FQDN/stats")
+          if [ $response -eq 200 ]; then
+            echo "✅ API stats endpoint passed"
+          else
+            echo "⚠️  API stats endpoint failed (HTTP $response)"
           fi
 
       - name: Test Dashboard
-        if: secrets.AZURE_STATIC_WEB_APPS_API_TOKEN != ''
+        if: ${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN != '' }}
         run: |
           # Get Static Web App URL
           DASHBOARD_URL="${{ secrets.DASHBOARD_URL }}"

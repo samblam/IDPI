@@ -62,9 +62,7 @@ resource "azurerm_cosmosdb_account" "main" {
   }
 
   backup {
-    type                = "Continuous"
-    interval_in_minutes = 240
-    retention_in_hours  = 8
+    type = "Continuous"
   }
 
   tags = local.common_tags
@@ -288,6 +286,9 @@ resource "azurerm_cognitive_account" "openai" {
   tags = local.common_tags
 }
 
+# NOTE: Azure OpenAI model versions may change over time and can be deprecated.
+# Before deployment, verify that the model version specified in variables is currently
+# supported in your Azure region by checking: https://learn.microsoft.com/azure/ai-services/openai/concepts/models
 resource "azurerm_cognitive_deployment" "gpt4o" {
   name                 = "${var.openai_model_name}-${var.openai_model_version}"
   cognitive_account_id = azurerm_cognitive_account.openai.id

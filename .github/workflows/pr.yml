@@ -156,15 +156,8 @@ jobs:
         run: |
           cd ingestion
           pip install -r requirements.txt
-          pip install pytest pytest-cov pytest-asyncio
-          pytest tests/ --cov=. --cov-report=term-missing --cov-fail-under=70 || echo "⚠️  Coverage below 70%"
-
-      - name: Test API coverage
-        run: |
-          cd api
-          pip install -r requirements.txt
           pip install pytest pytest-cov pytest-asyncio httpx
-          pytest tests/ --cov=. --cov-report=term-missing --cov-fail-under=70 || echo "⚠️  Coverage below 70%"
+          pytest tests/ --cov=. --cov-report=term-missing --cov-fail-under=70
 
   # ===========================================================================
   # Changed Files Analysis

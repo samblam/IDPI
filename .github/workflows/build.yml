@@ -134,8 +134,8 @@ jobs:
       - name: Get ACR login server
         id: acr
         run: |
-          ACR_NAME=$(az acr list --query "[0].name" -o tsv)
-          ACR_LOGIN_SERVER=$(az acr list --query "[0].loginServer" -o tsv)
+          ACR_NAME=$(az acr list --resource-group ${{ secrets.AZURE_RESOURCE_GROUP }} --query "[0].name" -o tsv)
+          ACR_LOGIN_SERVER=$(az acr list --resource-group ${{ secrets.AZURE_RESOURCE_GROUP }} --query "[0].loginServer" -o tsv)
           echo "name=$ACR_NAME" >> $GITHUB_OUTPUT
           echo "login_server=$ACR_LOGIN_SERVER" >> $GITHUB_OUTPUT
 

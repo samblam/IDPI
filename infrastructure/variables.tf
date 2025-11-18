@@ -58,7 +58,7 @@ variable "cosmos_max_throughput" {
 }
 
 variable "cosmos_enable_free_tier" {
-  description = "Enable Cosmos DB free tier (one per subscription)"
+  description = "Enable Cosmos DB free tier (WARNING: Only one Cosmos DB account per Azure subscription can have the free tier enabled. Enabling this on more than one account in the same subscription will cause deployment to fail.)"
   type        = bool
   default     = false
 }
