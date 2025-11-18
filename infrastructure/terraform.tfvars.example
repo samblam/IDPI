@@ -1,0 +1,169 @@
+# ==============================================================================
+# ThreatStream Infrastructure Configuration
+# ==============================================================================
+#
+# Copy this file to terraform.tfvars and update with your values:
+#   cp terraform.tfvars.example terraform.tfvars
+#
+# IMPORTANT: Never commit terraform.tfvars to version control!
+# ==============================================================================
+
+# ------------------------------------------------------------------------------
+# Basic Configuration
+# ------------------------------------------------------------------------------
+
+# Azure region where resources will be created
+# Recommended regions with Azure OpenAI availability:
+# - eastus, eastus2, westus, westus2
+# - northeurope, westeurope, uksouth, ukwest
+# - swedencentral, switzerlandnorth
+location = "eastus"
+
+# Environment name (dev, staging, prod)
+environment = "dev"
+
+# Project name used for resource naming (3-20 chars, lowercase alphanumeric and hyphens)
+project_name = "threatstream"
+
+# Tags applied to all resources
+tags = {
+  Project     = "ThreatStream"
+  ManagedBy   = "Terraform"
+  Environment = "dev"
+  Owner       = "YourName"
+  CostCenter  = "Engineering"
+}
+
+# ------------------------------------------------------------------------------
+# Cosmos DB Configuration
+# ------------------------------------------------------------------------------
+
+# Maximum throughput for Cosmos DB autoscale (RU/s)
+# Default: 1000 (minimum for serverless)
+# Increase for higher throughput: 4000, 10000, etc.
+cosmos_max_throughput = 1000
+
+# Enable Cosmos DB free tier (one per Azure subscription)
+# Set to true if this is your only Cosmos DB account
+cosmos_enable_free_tier = false
+
+# ------------------------------------------------------------------------------
+# Azure Functions Configuration
+# ------------------------------------------------------------------------------
+
+# Python runtime version for Azure Functions
+function_app_version = "3.11"
+
+# Keep functions warm (requires Basic or higher plan, increases cost)
+function_always_on = false
+
+# ------------------------------------------------------------------------------
+# Azure OpenAI Configuration
+# ------------------------------------------------------------------------------
+
+# Azure OpenAI SKU (S0 is standard)
+openai_sku = "S0"
+
+# OpenAI model name and version
+openai_model_name    = "gpt-4o"
+openai_model_version = "2024-08-06"
+
+# OpenAI deployment capacity (tokens per minute / 1000)
+# Default: 30 (30K TPM)
+# Increase for higher throughput: 60 (60K TPM), 120 (120K TPM)
+# Note: Higher capacity = higher cost
+openai_capacity = 30
+
+# ------------------------------------------------------------------------------
+# Redis Cache Configuration
+# ------------------------------------------------------------------------------
+
+# Redis Cache SKU (Basic, Standard, Premium)
+# Basic: Single node, no SLA
+# Standard: Two-node, 99.9% SLA
+# Premium: Advanced features (clustering, persistence)
+redis_sku = "Basic"
+
+# Redis Cache capacity
+# For Basic/Standard: 0 (250MB), 1 (1GB), 2 (2.5GB), 3 (6GB), 4 (13GB), 5 (26GB), 6 (53GB)
+# For Premium: 1 (6GB), 2 (13GB), 3 (26GB), 4 (53GB), 5 (120GB)
+redis_capacity = 0
+
+# Enable non-SSL port for Redis (not recommended for production)
+redis_enable_non_ssl_port = false
+
+# ------------------------------------------------------------------------------
+# Container Apps Configuration
+# ------------------------------------------------------------------------------
+
+# Minimum number of API container replicas (0 = scale to zero)
+container_apps_min_replicas = 1
+
+# Maximum number of API container replicas
+container_apps_max_replicas = 10
+
+# ------------------------------------------------------------------------------
+# Monitoring Configuration
+# ------------------------------------------------------------------------------
+
+# Log Analytics workspace retention in days
+# Options: 30, 60, 90, 120, 180, 270, 365, 730
+log_analytics_retention_days = 30
+
+# Application Insights sampling percentage (0-100)
+# Lower values reduce cost but may miss telemetry
+# 100 = capture everything (recommended for dev/staging)
+# 20-50 = good balance for production
+application_insights_sampling_percentage = 100
+
+# ------------------------------------------------------------------------------
+# Security Configuration
+# ------------------------------------------------------------------------------
+
+# Enable Key Vault network restrictions
+# Set to true to restrict access to specific IPs
+enable_key_vault_firewall = false
+
+# List of IP addresses allowed to access Key Vault
+# Example: ["1.2.3.4", "5.6.7.8"]
+# Leave empty to allow all (when firewall is disabled)
+allowed_ip_addresses = []
+
+# ==============================================================================
+# Environment-Specific Examples
+# ==============================================================================
+
+# Development Environment
+# -----------------------
+# location                     = "eastus"
+# environment                  = "dev"
+# cosmos_enable_free_tier      = true
+# redis_sku                    = "Basic"
+# redis_capacity               = 0
+# container_apps_min_replicas  = 0  # Scale to zero when idle
+# openai_capacity              = 30
+
+# Staging Environment
+# -------------------
+# location                     = "eastus"
+# environment                  = "staging"
+# cosmos_enable_free_tier      = false
+# redis_sku                    = "Standard"
+# redis_capacity               = 1
+# container_apps_min_replicas  = 1
+# openai_capacity              = 60
+
+# Production Environment
+# ----------------------
+# location                     = "eastus"
+# environment                  = "prod"
+# cosmos_enable_free_tier      = false
+# cosmos_max_throughput        = 4000
+# redis_sku                    = "Standard"
+# redis_capacity               = 2
+# container_apps_min_replicas  = 2
+# container_apps_max_replicas  = 20
+# openai_capacity              = 120
+# log_analytics_retention_days = 90
+# enable_key_vault_firewall    = true
+# allowed_ip_addresses         = ["your.office.ip.address"]
